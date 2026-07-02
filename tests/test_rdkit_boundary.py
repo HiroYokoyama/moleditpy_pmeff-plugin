@@ -118,6 +118,43 @@ def test_energy_evaluation_speed_on_medium_molecule():
     assert per_eval < 0.010
 
 
+def test_lone_pair_centers_keep_their_shape():
+    # Lone pairs are not explicit, but their steric effect enters through
+    # the hybridization-derived angle targets: sp3 N stays pyramidal
+    # (no out-of-plane term is applied to sp3 centers), sp2 amide N stays
+    # planar, and sp3 O stays bent.
+    def optimized(smiles):
+        mol = _embed(smiles)
+        assert ff.optimize_rdkit_mol(mol, max_iter=3000)[0]
+        return mol, np.array(mol.GetConformer().GetPositions())
+
+    def height_above_neighbors(mol, coords, center):
+        nbrs = [a.GetIdx() for a in mol.GetAtomWithIdx(center).GetNeighbors()]
+        assert len(nbrs) == 3
+        n = np.cross(
+            coords[nbrs[1]] - coords[nbrs[0]], coords[nbrs[2]] - coords[nbrs[0]]
+        )
+        n /= np.linalg.norm(n)
+        return abs(float(np.dot(coords[center] - coords[nbrs[0]], n)))
+
+    mol, coords = optimized("N")  # ammonia: pyramidal
+    assert height_above_neighbors(mol, coords, 0) > 0.25
+
+    mol, coords = optimized("CC(=O)N")  # acetamide: planar amide N
+    assert height_above_neighbors(mol, coords, 3) < 0.02
+
+    mol, coords = optimized("COC")  # ether: bent, not linear
+    v1 = coords[0] - coords[1]
+    v2 = coords[2] - coords[1]
+    angle = np.degrees(
+        np.arccos(
+            float(np.dot(v1, v2))
+            / float(np.linalg.norm(v1) * np.linalg.norm(v2))
+        )
+    )
+    assert 100.0 < angle < 120.0
+
+
 def test_handles_transition_metal_complex():
     # Ferrocene-like iron center: PMEFF must parameterize Fe without gaps.
     mol = Chem.AddHs(Chem.MolFromSmiles("[Fe]"))

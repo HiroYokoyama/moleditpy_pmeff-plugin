@@ -20,6 +20,10 @@ covalent radius — so no element is ever missing:
 * **van der Waals** — a Lennard-Jones 12-6 term whose per-atom radius is the
   covalent radius plus a fixed offset, which reproduces tabulated vdW radii of
   the common elements to within ~0.05 A.
+* **Electrostatics (optional)** — QEq partial charges derived from Slater
+  effective nuclear charges and Allred-Rochow electronegativities, feeding a
+  shielded Coulomb term. Enabled together with square-planar angle targets
+  for 4-coordinate d8 metal centers via the ``electronic_effects`` switch.
 
 The only runtime dependencies are ``numpy`` (for the math) and, at the plugin
 boundary, ``rdkit`` (to read connectivity and conformer coordinates). Geometry

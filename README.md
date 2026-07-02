@@ -60,6 +60,27 @@ PMEFF is a five-term force field:
   scale) and combined with the Lorentz–Berthelot geometric mean. 1-2 and 1-3
   pairs are excluded; 1-4 pairs get the conventional half well depth.
 
+### Electronic effects (optional)
+
+**PMEFF → Toggle Electronic Effects** switches on two extra treatments
+(persisted in `force_field_plugin/settings.json`, default off):
+
+- **QEq partial charges + electrostatics** — still no lookup tables: Slater's
+  rules give the effective nuclear charge from Z alone, Allred–Rochow combines
+  it with the Pyykkö radius into an electronegativity, hardness is the
+  self-Coulomb of the covalent-radius sphere, and a one-shot
+  electronegativity-equalization solve yields geometry-aware partial charges
+  (conserving the molecule's formal charge). They feed a shielded Coulomb pair
+  term, so polar contacts and salt bridges influence the geometry.
+- **Square-planar d8 metals** — 4-coordinate Ni, Pd, Pt, Rh, Ir and Au centers
+  get square-planar angle targets: each L–M–L angle pulls toward the nearer of
+  90°/180°, so the cis/trans assignment emerges from the starting geometry
+  instead of forcing tetrahedral 109.47° on a Pt(II) complex.
+
+Lone pairs are not explicit particles, but their steric effect enters through
+the hybridization-derived angle targets: sp³ N stays pyramidal, sp³ O stays
+bent, and a conjugated (sp²) amide nitrogen stays planar.
+
 Geometry optimization uses **FIRE** (Fast Inertial Relaxation Engine) with a
 per-atom displacement clamp for stability, plus fully **analytical gradients**
 for all five energy terms — including the dihedral derivatives, which are
