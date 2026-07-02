@@ -67,6 +67,57 @@ def test_optimize_no_conformer_fails_gracefully():
     assert result is None
 
 
+def test_optimized_benzene_is_planar_with_uniform_aromatic_bonds():
+    mol = _embed("c1ccccc1")
+    success, result = ff.optimize_rdkit_mol(mol, max_iter=2000)
+    assert success and result.converged
+    coords = np.array(mol.GetConformer().GetPositions())
+    ring = coords[:6]
+    centroid = ring.mean(axis=0)
+    normal = np.linalg.svd(ring - centroid)[2][2]
+    # Torsions + out-of-plane terms must keep the ring flat.
+    assert np.abs((ring - centroid) @ normal).max() < 0.01
+    # Aromatic C-C bonds: uniform and between single (1.50) and double (1.34).
+    cc = [
+        float(np.linalg.norm(coords[b.GetBeginAtomIdx()] - coords[b.GetEndAtomIdx()]))
+        for b in mol.GetBonds()
+        if b.GetBeginAtom().GetAtomicNum() == 6
+        and b.GetEndAtom().GetAtomicNum() == 6
+    ]
+    assert max(cc) - min(cc) < 0.01
+    assert 1.34 < min(cc) and max(cc) < 1.50
+
+
+def test_rdkit_bond_orders_shorten_double_bond():
+    # Ethylene C=C must get a shorter rest length than ethane C-C.
+    ethane = ff.topology_from_rdkit(Chem.AddHs(Chem.MolFromSmiles("CC")))
+    ethylene = ff.topology_from_rdkit(Chem.AddHs(Chem.MolFromSmiles("C=C")))
+
+    def cc_rest(topo):
+        return next(
+            r0 for i, j, r0 in topo.bonds
+            if topo.atomic_numbers[i] == 6 and topo.atomic_numbers[j] == 6
+        )
+
+    assert cc_rest(ethylene) < cc_rest(ethane)
+
+
+def test_energy_evaluation_speed_on_medium_molecule():
+    # Vectorized energetics: a ~60-atom molecule must evaluate in well under
+    # 10 ms (the old per-term Python loops took far longer).
+    import time
+
+    mol = _embed("CCCCCCCCCCCCCCCCCCCC")
+    topo = ff.topology_from_rdkit(mol)
+    coords = np.array(mol.GetConformer().GetPositions())
+    ff.energy_and_gradient(coords, topo)  # warm the compiled-array cache
+    t0 = time.perf_counter()
+    for _ in range(50):
+        ff.energy_and_gradient(coords, topo)
+    per_eval = (time.perf_counter() - t0) / 50
+    assert per_eval < 0.010
+
+
 def test_handles_transition_metal_complex():
     # Ferrocene-like iron center: PMEFF must parameterize Fe without gaps.
     mol = Chem.AddHs(Chem.MolFromSmiles("[Fe]"))
