@@ -27,14 +27,23 @@ Once installed, PMEFF registers:
 
 ## The physics
 
-PMEFF is a three-term force field:
+PMEFF is a five-term force field:
 
 - **Bonds** — harmonic, `½·k·(r − r₀)²`, with the rest length `r₀` taken as the
-  sum of the two atoms' covalent radii.
+  sum of the two atoms' covalent radii, scaled down by bond order (double
+  ×0.89, triple ×0.78, aromatic interpolated → C(ar)–C(ar) 1.42 Å).
 - **Angles** — harmonic in the bend angle, `½·k·(θ − θ₀)²`, with the ideal angle
   `θ₀` inferred from the central atom's hybridization (falling back to its
   coordination number for metals and other cases where hybridization is
   ambiguous).
+- **Torsions** — a cosine dihedral potential `½·V·(1 + cos(n·φ − γ))`: 2-fold
+  for sp²–sp² bonds (keeps double bonds and conjugated systems planar), 3-fold
+  for sp³–sp³ bonds (staggered minima), and a weak 6-fold term for mixed
+  sp²–sp³ bonds. The per-bond barrier is split evenly over all dihedrals
+  sharing the bond, UFF-style, so it doesn't grow with substitution.
+- **Out-of-plane** — a harmonic penalty on the pyramidalization of
+  3-coordinate sp² centers, expressed through the sum of the three bend angles
+  around the center (planar ⇔ 360°).
 - **van der Waals** — a Lennard-Jones 12-6 term whose per-atom radius is the
   covalent radius plus a fixed 0.90 Å offset. This reproduces the tabulated vdW
   radii of the common elements to within ~0.05 Å (C → 1.65 Å vs. 1.70 Å,
@@ -42,8 +51,10 @@ PMEFF is a three-term force field:
 
 Geometry optimization uses **FIRE** (Fast Inertial Relaxation Engine) with a
 per-atom displacement clamp for stability, plus fully **analytical gradients**
-for all three energy terms, so it converges quickly and without external
-solvers.
+for all five energy terms — including the dihedral derivatives, which are
+verified against numeric differentiation in the test suite. All terms are
+evaluated with vectorized numpy over precompiled index arrays, so evaluation
+cost is dominated by numpy kernels rather than Python loops.
 
 > **Note:** PMEFF is a fast, universal *geometry-cleanup* force field, not a
 > replacement for quantum-chemical optimization. Its energies are in internal,
