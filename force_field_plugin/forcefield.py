@@ -90,8 +90,12 @@ _VDW_OFFSET_A = 0.90
 _K_BOND = 700.0    # energy / Angstrom^2
 _K_ANGLE = 120.0   # energy / radian^2
 _K_OOP = 40.0      # energy / radian^2, on the angle-sum around sp2 centers
-_VDW_EPS = 0.10    # LJ well depth (energy)
+_VDW_EPS = 0.10    # LJ well depth (energy) for the reference atom (carbon)
 _VDW_14_SCALE = 0.5  # conventional scaling of 1-4 LJ interactions
+# Per-atom well depths scale with the covalent radius as a polarizability
+# proxy: eps_i = _VDW_EPS * (r_i / r_C)^1.5, combined pairwise with the
+# Lorentz-Berthelot geometric mean. Carbon (r = 0.75 A) is the anchor.
+_EPS_RADIUS_REF = 0.75
 
 # Per-bond torsional barriers (energy), split evenly across all dihedrals
 # sharing the central bond, so the barrier does not grow with substitution.
@@ -136,6 +140,16 @@ def vdw_radius(atomic_number: int) -> float:
     return covalent_radius(atomic_number) + _VDW_OFFSET_A
 
 
+def vdw_epsilon(atomic_number: int) -> float:
+    """Return the per-atom LJ well depth, scaled with atomic size.
+
+    Larger atoms are more polarizable and bind more strongly through
+    dispersion; the covalent radius serves as the size/polarizability proxy,
+    normalized so carbon keeps the reference well depth.
+    """
+    return _VDW_EPS * (covalent_radius(atomic_number) / _EPS_RADIUS_REF) ** 1.5
+
+
 def bond_order_factor(order: float) -> float:
     """Return the rest-length scaling factor for a bond of the given order.
 
@@ -159,7 +173,8 @@ class Topology:
 
     Attributes:
         atomic_numbers: Per-atom atomic numbers (length N).
-        bonds: List of (i, j, r0) — atom indices and rest length (Angstrom).
+        bonds: List of (i, j, r0, k) — atom indices, rest length (Angstrom)
+            and harmonic force constant.
         angles: List of (i, j, k, theta0) — j is the vertex, theta0 in radians.
         torsions: List of (i, j, k, l, v, n, gamma) — dihedral i-j-k-l with
             energy ``0.5 * v * (1 + cos(n*phi - gamma))``.
@@ -170,7 +185,7 @@ class Topology:
     """
 
     atomic_numbers: Sequence[int]
-    bonds: List[Tuple[int, int, float]] = field(default_factory=list)
+    bonds: List[Tuple[int, int, float, float]] = field(default_factory=list)
     angles: List[Tuple[int, int, int, float]] = field(default_factory=list)
     torsions: List[Tuple[int, int, int, int, float, int, float]] = field(
         default_factory=list
@@ -200,7 +215,7 @@ class Topology:
         if cache is not None and cache[0] == key:
             return cache[1]
 
-        bonds = np.array(self.bonds, dtype=float).reshape(-1, 3)
+        bonds = np.array(self.bonds, dtype=float).reshape(-1, 4)
         angles = np.array(self.angles, dtype=float).reshape(-1, 4)
         torsions = np.array(self.torsions, dtype=float).reshape(-1, 7)
         oops = np.array(self.oops, dtype=int).reshape(-1, 4)
@@ -208,6 +223,7 @@ class Topology:
         arrays: Dict[str, np.ndarray] = {
             "bond_ij": bonds[:, :2].astype(int),
             "bond_r0": bonds[:, 2],
+            "bond_k": bonds[:, 3],
             "angle_ijk": angles[:, :3].astype(int),
             "angle_t0": angles[:, 3],
             "tors_ijkl": torsions[:, :4].astype(int),
@@ -296,6 +312,7 @@ def build_topology(
     topo = Topology(atomic_numbers=list(atomic_numbers))
 
     seen_bonds = set()
+    order_by_pair = {}
     for b_idx, (i, j) in enumerate(bond_pairs):
         if i == j:
             continue
@@ -304,14 +321,19 @@ def build_topology(
             continue
         seen_bonds.add(key)
         r0 = covalent_radius(atomic_numbers[i]) + covalent_radius(atomic_numbers[j])
+        order = 1.0
         if bond_orders is not None and b_idx < len(bond_orders):
             try:
-                r0 *= bond_order_factor(float(bond_orders[b_idx]))
+                order = max(float(bond_orders[b_idx]), 0.5)
             except (TypeError, ValueError):
-                pass
-        topo.bonds.append((key[0], key[1], r0))
+                order = 1.0
+        order_by_pair[key] = order
+        r0 *= bond_order_factor(order)
+        # Stretching stiffness grows roughly linearly with bond order
+        # (C=C is ~2x, C#C ~3x as stiff as C-C).
+        topo.bonds.append((key[0], key[1], r0, _K_BOND * order))
 
-    rest_length = {(i, j): r0 for i, j, r0 in topo.bonds}
+    rest_length = {(i, j): r0 for i, j, r0, _k in topo.bonds}
 
     for j in range(n):
         nbrs = sorted(neighbors[j])
@@ -339,11 +361,17 @@ def build_topology(
     # central atoms both have a recognized (sp2/sp3) hybridization. The
     # barrier is divided by the number of dihedrals on that bond so the
     # rotational barrier is a per-bond, not per-substituent, quantity.
-    for j, k, _r0 in topo.bonds:
+    for j, k, _r0, _kf in topo.bonds:
         params = _torsion_params(hyb(j), hyb(k))
         if params is None:
             continue
         v_bond, periodicity, gamma = params
+        if periodicity == 2:
+            # The 2-fold barrier reflects the pi character of the central
+            # bond: full for a double bond (order 2), reduced for aromatic
+            # (1.5), weak for a conjugated sp2-sp2 single bond (biphenyl).
+            order = order_by_pair.get((min(j, k), max(j, k)), 1.0)
+            v_bond *= min(max(order - 1.0, 0.15), 1.0)
         ends_i = [a for a in sorted(neighbors[j]) if a != k]
         ends_l = [d for d in sorted(neighbors[k]) if d != j]
         paths = [
@@ -384,7 +412,11 @@ def build_topology(
             if (i, j) in excluded:
                 continue
             rmin = vdw_radius(atomic_numbers[i]) + vdw_radius(atomic_numbers[j])
-            eps = _VDW_EPS * (_VDW_14_SCALE if (i, j) in pairs14 else 1.0)
+            eps = math.sqrt(
+                vdw_epsilon(atomic_numbers[i]) * vdw_epsilon(atomic_numbers[j])
+            )
+            if (i, j) in pairs14:
+                eps *= _VDW_14_SCALE
             topo.vdw_pairs.append((i, j, rmin, eps))
 
     return topo
@@ -460,8 +492,9 @@ def energy_and_gradient(
         safe = r > 1e-9
         r = np.where(safe, r, 1.0)
         diff = np.where(safe, r - arrays["bond_r0"], 0.0)
-        energy += 0.5 * _K_BOND * float(np.sum(diff * diff))
-        g = (_K_BOND * diff / r)[:, None] * d
+        k = arrays["bond_k"]
+        energy += 0.5 * float(np.sum(k * diff * diff))
+        g = (k * diff / r)[:, None] * d
         np.add.at(grad, bond_ij[:, 0], g)
         np.add.at(grad, bond_ij[:, 1], -g)
 

@@ -95,7 +95,7 @@ def test_rdkit_bond_orders_shorten_double_bond():
 
     def cc_rest(topo):
         return next(
-            r0 for i, j, r0 in topo.bonds
+            r0 for i, j, r0, _k in topo.bonds
             if topo.atomic_numbers[i] == 6 and topo.atomic_numbers[j] == 6
         )
 

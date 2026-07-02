@@ -206,6 +206,43 @@ def test_vdw_14_pairs_get_half_epsilon():
     assert eps[(0, 4)] == pytest.approx(ff._VDW_EPS)
 
 
+def test_bond_stiffness_scales_with_order():
+    single = ff.build_topology([6, 6], [(0, 1)], None, bond_orders=[1.0])
+    triple = ff.build_topology([6, 6], [(0, 1)], None, bond_orders=[3.0])
+    assert single.bonds[0][3] == pytest.approx(ff._K_BOND)
+    assert triple.bonds[0][3] == pytest.approx(3.0 * ff._K_BOND)
+
+
+def test_sp2_torsion_barrier_scales_with_pi_order():
+    def cc_barrier(order):
+        topo = ff.build_topology(
+            [6, 6, 1, 1, 1, 1],
+            [(0, 1), (0, 2), (0, 3), (1, 4), (1, 5)],
+            ["SP2", "SP2", None, None, None, None],
+            bond_orders=[order, 1, 1, 1, 1],
+        )
+        return sum(v for *_ijkl, v, _n, _g in topo.torsions)
+
+    # Full barrier for a double bond, reduced for aromatic, weak but
+    # non-zero for a conjugated sp2-sp2 single bond (biphenyl-like).
+    assert cc_barrier(2.0) == pytest.approx(ff._V_TORSION_SP2)
+    assert cc_barrier(1.0) < cc_barrier(1.5) < cc_barrier(2.0)
+    assert cc_barrier(1.0) > 0.0
+
+
+def test_vdw_epsilon_grows_with_atomic_size():
+    assert ff.vdw_epsilon(6) == pytest.approx(ff._VDW_EPS)  # carbon anchor
+    assert ff.vdw_epsilon(1) < ff.vdw_epsilon(6) < ff.vdw_epsilon(53)
+
+    def end_pair_eps(z):
+        topo = ff.build_topology(
+            [z, 6, 6, 6, z], [(0, 1), (1, 2), (2, 3), (3, 4)], None
+        )
+        return next(e for i, j, _r, e in topo.vdw_pairs if (i, j) == (0, 4))
+
+    assert end_pair_eps(53) > end_pair_eps(6) > end_pair_eps(1)
+
+
 def test_no_torsions_without_hybridization():
     topo = ff.build_topology([6, 6, 6, 6], [(0, 1), (1, 2), (2, 3)], None)
     assert topo.torsions == []
