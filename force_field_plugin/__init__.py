@@ -12,7 +12,11 @@ See ``forcefield.py`` for the physics; this module only wires it into the host
 via the stable ``PluginContext`` API.
 """
 
+import json
 import logging
+import os
+import tempfile
+from pathlib import Path
 
 PLUGIN_NAME = "PMEFF Force Field"
 PLUGIN_VERSION = "0.1.0"
@@ -31,16 +35,77 @@ PLUGIN_DEPENDENCIES = ["numpy", "rdkit"]
 _OPT_METHOD_NAME = "PMEFF (Universal)"
 _MAX_ITER = 1000
 
+# Plugin options live in a JSON file next to the plugin package, so they
+# travel with the installed plugin and need no host settings API.
+_SETTINGS_FILE = Path(__file__).resolve().parent / "settings.json"
+_DEFAULT_SETTINGS = {
+    # Adds QEq partial charges (shielded Coulomb term) and square-planar
+    # angle targets for 4-coordinate d8 metal centers.
+    "electronic_effects": False,
+}
+
 logger = logging.getLogger(__name__)
 
 
+def load_settings() -> dict:
+    """Read settings.json, falling back to defaults on any problem."""
+    settings = dict(_DEFAULT_SETTINGS)
+    try:
+        with open(_SETTINGS_FILE, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        if isinstance(data, dict):
+            settings.update(data)
+    except FileNotFoundError:
+        pass
+    except (OSError, ValueError):
+        logger.warning("PMEFF: could not read %s; using defaults.", _SETTINGS_FILE)
+    return settings
+
+
+def save_settings(settings: dict) -> None:
+    """Write settings.json atomically (temp file + replace)."""
+    try:
+        fd, tmp = tempfile.mkstemp(
+            dir=str(_SETTINGS_FILE.parent), suffix=".tmp"
+        )
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(settings, fh, indent=2)
+        os.replace(tmp, _SETTINGS_FILE)
+    except OSError:
+        logger.exception("PMEFF: failed to write %s", _SETTINGS_FILE)
+
+
+def electronic_effects_enabled() -> bool:
+    """Whether the optional electronic-effects terms are switched on."""
+    return bool(load_settings().get("electronic_effects", False))
+
+
 def initialize(context):
-    """Register PMEFF's optimization method and energy tool."""
+    """Register PMEFF's optimization method, energy tool and settings."""
     context.register_optimization_method(
         _OPT_METHOD_NAME, lambda mol: _optimize(mol, context)
     )
     context.add_analysis_tool(
         "PMEFF Single-Point Energy", lambda: _show_energy(context)
+    )
+    context.add_menu_action(
+        "PMEFF",
+        lambda: _toggle_electronic_effects(context),
+        text="Toggle Electronic Effects (QEq charges, square-planar d8)",
+    )
+
+
+def _toggle_electronic_effects(context) -> None:
+    """Flip the electronic-effects option and persist it to settings.json."""
+    settings = load_settings()
+    settings["electronic_effects"] = not settings.get("electronic_effects", False)
+    save_settings(settings)
+    state = "enabled" if settings["electronic_effects"] else "disabled"
+    _status(
+        context,
+        f"PMEFF electronic effects {state} "
+        "(QEq charges + square-planar d8 metals).",
+        5000,
     )
 
 
@@ -49,7 +114,11 @@ def _optimize(mol, context) -> bool:
     from .forcefield import optimize_rdkit_mol
 
     try:
-        success, result = optimize_rdkit_mol(mol, max_iter=_MAX_ITER)
+        success, result = optimize_rdkit_mol(
+            mol,
+            max_iter=_MAX_ITER,
+            electronic_effects=electronic_effects_enabled(),
+        )
     except Exception as exc:  # pragma: no cover - defensive GUI guard
         logger.exception("PMEFF optimization failed")
         _status(context, f"PMEFF optimization failed: {exc}", 5000)
@@ -82,7 +151,9 @@ def _show_energy(context) -> None:
         return
 
     try:
-        energy = compute_energy(mol)
+        energy = compute_energy(
+            mol, electronic_effects=electronic_effects_enabled()
+        )
     except Exception as exc:  # pragma: no cover - defensive GUI guard
         logger.exception("PMEFF energy evaluation failed")
         _status(context, f"PMEFF energy failed: {exc}", 5000)
