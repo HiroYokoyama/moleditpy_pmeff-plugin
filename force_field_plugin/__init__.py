@@ -40,8 +40,9 @@ _MAX_ITER = 1000
 _SETTINGS_FILE = Path(__file__).resolve().parent / "settings.json"
 _DEFAULT_SETTINGS = {
     # Adds QEq partial charges (shielded Coulomb term) and square-planar
-    # angle targets for 4-coordinate d8 metal centers.
-    "electronic_effects": False,
+    # angle targets for 4-coordinate d8 metal centers. On by default; the
+    # extra terms improve heteroatom and metal geometries at a small cost.
+    "electronic_effects": True,
 }
 
 logger = logging.getLogger(__name__)

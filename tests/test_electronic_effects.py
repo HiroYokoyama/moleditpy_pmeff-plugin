@@ -172,9 +172,9 @@ def _settings_file(tmp_path, monkeypatch):
     return path
 
 
-def test_electronic_effects_default_off(settings_file):
+def test_electronic_effects_default_on(settings_file):
     assert not settings_file.exists()
-    assert plugin.electronic_effects_enabled() is False
+    assert plugin.electronic_effects_enabled() is True
 
 
 def test_toggle_writes_settings_json(settings_file):
@@ -183,24 +183,23 @@ def test_toggle_writes_settings_json(settings_file):
     ctx.add_menu_action.assert_called_once()
     toggle = ctx.add_menu_action.call_args[0][1]
 
-    toggle()
-    assert plugin.electronic_effects_enabled() is True
-    assert json.loads(settings_file.read_text())["electronic_effects"] is True
-
-    toggle()
+    toggle()  # default on -> off
     assert plugin.electronic_effects_enabled() is False
+    assert json.loads(settings_file.read_text())["electronic_effects"] is False
+
+    toggle()  # off -> on
+    assert plugin.electronic_effects_enabled() is True
 
 
 def test_corrupt_settings_file_falls_back_to_defaults(settings_file):
     settings_file.write_text("{not json")
-    assert plugin.electronic_effects_enabled() is False
+    assert plugin.electronic_effects_enabled() is True
 
 
 def test_optimizer_passes_electronic_effects_flag(settings_file, monkeypatch):
     ctx = make_context()
     plugin.initialize(ctx)
-    toggle = ctx.add_menu_action.call_args[0][1]
-    toggle()  # enable
+    # Default is on, so no toggle needed to exercise the enabled path.
 
     seen = {}
 

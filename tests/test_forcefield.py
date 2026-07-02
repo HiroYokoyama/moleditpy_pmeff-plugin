@@ -243,6 +243,38 @@ def test_vdw_epsilon_grows_with_atomic_size():
     assert end_pair_eps(53) > end_pair_eps(6) > end_pair_eps(1)
 
 
+def test_vdw_cutoff_drops_distant_pairs_but_not_electrostatics():
+    # Two well-separated methane-ish carbons: one vdW pair without a cutoff.
+    atoms = [6, 6]
+    coords = np.array([[0.0, 0.0, 0.0], [20.0, 0.0, 0.0]])
+    full = ff.build_topology(atoms, [], None)
+    assert len(full.vdw_pairs) == 1
+
+    cut = ff.build_topology(
+        atoms, [], None, coords=coords, vdw_cutoff=12.0
+    )
+    assert cut.vdw_pairs == []
+
+    # Electrostatics are long-range and must survive the vdW cutoff.
+    charged = ff.build_topology(
+        atoms, [], None, charges=[0.5, -0.5],
+        coords=coords, vdw_cutoff=12.0,
+    )
+    assert charged.vdw_pairs == []
+    assert len(charged.elec_pairs) == 1
+
+
+def test_vdw_cutoff_keeps_close_pairs_unchanged():
+    atoms = [6, 6]
+    coords = np.array([[0.0, 0.0, 0.0], [4.0, 0.0, 0.0]])
+    full = ff.build_topology(atoms, [], None)
+    cut = ff.build_topology(atoms, [], None, coords=coords, vdw_cutoff=12.0)
+    assert len(cut.vdw_pairs) == len(full.vdw_pairs) == 1
+    e_full, _ = ff.energy_and_gradient(coords, full)
+    e_cut, _ = ff.energy_and_gradient(coords, cut)
+    assert e_cut == pytest.approx(e_full)
+
+
 def test_no_torsions_without_hybridization():
     topo = ff.build_topology([6, 6, 6, 6], [(0, 1), (1, 2), (2, 3)], None)
     assert topo.torsions == []

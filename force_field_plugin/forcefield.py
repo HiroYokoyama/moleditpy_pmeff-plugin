@@ -96,6 +96,11 @@ _K_ANGLE = 120.0   # energy / radian^2
 _K_OOP = 40.0      # energy / radian^2, on the angle-sum around sp2 centers
 _VDW_EPS = 0.10    # LJ well depth (energy) for the reference atom (carbon)
 _VDW_14_SCALE = 0.5  # conventional scaling of 1-4 LJ interactions
+# Distance beyond which the (short-range) LJ term is dropped from the pair
+# list. At 12 A a carbon-carbon LJ is ~1e-4 of the well depth, so truncation
+# is negligible while it turns the O(N^2) vdW list near-linear for large
+# molecules. Electrostatics are long-range and are never truncated.
+_VDW_CUTOFF_A = 12.0
 # Per-atom well depths scale with the covalent radius as a polarizability
 # proxy: eps_i = _VDW_EPS * (r_i / r_C)^1.5, combined pairwise with the
 # Lorentz-Berthelot geometric mean. Carbon (r = 0.75 A) is the anchor.
@@ -406,6 +411,8 @@ def build_topology(
     bond_orders: Optional[Sequence[float]] = None,
     charges: Optional[Sequence[float]] = None,
     square_planar_metals: bool = False,
+    coords: Optional[np.ndarray] = None,
+    vdw_cutoff: Optional[float] = None,
 ) -> Topology:
     """Assemble a :class:`Topology` from connectivity alone.
 
@@ -426,6 +433,11 @@ def build_topology(
         square_planar_metals: When True, 4-coordinate common-d8 metal
             centers (Ni, Pd, Pt, Rh, Ir, Au) get square-planar angle terms
             (nearest of 90/180 degrees) instead of tetrahedral ones.
+        coords: Optional (N, 3) coordinates. Only used to apply *vdw_cutoff*;
+            without them the cutoff is ignored and every pair is kept.
+        vdw_cutoff: Optional distance (Angstrom) beyond which LJ pairs are
+            dropped. Requires *coords*. Electrostatic pairs are never
+            truncated (Coulomb is long-range).
     """
     n = len(atomic_numbers)
     neighbors: List[set] = [set() for _ in range(n)]
@@ -543,17 +555,26 @@ def build_topology(
                     if l not in (i, j):
                         pairs14.add((min(i, l), max(i, l)))
     pairs14 -= excluded
+    use_cutoff = coords is not None and vdw_cutoff is not None
+    if use_cutoff:
+        coords = np.asarray(coords, dtype=float)
+        cutoff_sq = float(vdw_cutoff) * float(vdw_cutoff)
     for i in range(n):
         for j in range(i + 1, n):
             if (i, j) in excluded:
                 continue
-            rmin = vdw_radius(atomic_numbers[i]) + vdw_radius(atomic_numbers[j])
-            eps = math.sqrt(
-                vdw_epsilon(atomic_numbers[i]) * vdw_epsilon(atomic_numbers[j])
-            )
-            if (i, j) in pairs14:
-                eps *= _VDW_14_SCALE
-            topo.vdw_pairs.append((i, j, rmin, eps))
+            far = False
+            if use_cutoff:
+                d = coords[i] - coords[j]
+                far = float(d @ d) > cutoff_sq
+            if not far:
+                rmin = vdw_radius(atomic_numbers[i]) + vdw_radius(atomic_numbers[j])
+                eps = math.sqrt(
+                    vdw_epsilon(atomic_numbers[i]) * vdw_epsilon(atomic_numbers[j])
+                )
+                if (i, j) in pairs14:
+                    eps *= _VDW_14_SCALE
+                topo.vdw_pairs.append((i, j, rmin, eps))
             if charges is not None:
                 kqq = _K_COULOMB * float(charges[i]) * float(charges[j])
                 if (i, j) in pairs14:
@@ -896,14 +917,11 @@ def topology_from_rdkit(mol: Any, electronic_effects: bool = False) -> Topology:
         except Exception:  # pragma: no cover - defensive
             hybridizations.append(None)
 
+    coords = _conformer_coords(mol)
     charges: Optional[np.ndarray] = None
-    if electronic_effects:
-        coords = _conformer_coords(mol)
-        if coords is not None:
-            total = float(
-                sum(atom.GetFormalCharge() for atom in mol.GetAtoms())
-            )
-            charges = qeq_charges(atomic_numbers, coords, total)
+    if electronic_effects and coords is not None:
+        total = float(sum(atom.GetFormalCharge() for atom in mol.GetAtoms()))
+        charges = qeq_charges(atomic_numbers, coords, total)
 
     return build_topology(
         atomic_numbers,
@@ -912,6 +930,8 @@ def topology_from_rdkit(mol: Any, electronic_effects: bool = False) -> Topology:
         bond_orders,
         charges=charges,
         square_planar_metals=electronic_effects,
+        coords=coords,
+        vdw_cutoff=_VDW_CUTOFF_A,
     )
 
 

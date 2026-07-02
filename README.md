@@ -62,8 +62,8 @@ PMEFF is a five-term force field:
 
 ### Electronic effects (optional)
 
-**PMEFF → Toggle Electronic Effects** switches on two extra treatments
-(persisted in `force_field_plugin/settings.json`, default off):
+**PMEFF → Toggle Electronic Effects** switches two extra treatments
+(persisted in `force_field_plugin/settings.json`, **on by default**):
 
 - **QEq partial charges + electrostatics** — still no lookup tables: Slater's
   rules give the effective nuclear charge from Z alone, Allred–Rochow combines
@@ -83,10 +83,13 @@ bent, and a conjugated (sp²) amide nitrogen stays planar.
 
 Geometry optimization uses **FIRE** (Fast Inertial Relaxation Engine) with a
 per-atom displacement clamp for stability, plus fully **analytical gradients**
-for all five energy terms — including the dihedral derivatives, which are
-verified against numeric differentiation in the test suite. All terms are
+for all energy terms — including the dihedral and Coulomb derivatives, which
+are verified against numeric differentiation in the test suite. All terms are
 evaluated with vectorized numpy over precompiled index arrays, so evaluation
-cost is dominated by numpy kernels rather than Python loops.
+cost is dominated by numpy kernels rather than Python loops. The short-range
+van der Waals term is truncated at a 12 Å cutoff (electrostatics, being
+long-range, are not), keeping the non-bonded list near-linear for large
+molecules; at 12 Å the dropped LJ interactions are ~10⁻⁴ of a well depth.
 
 > **Note:** PMEFF is a fast, universal *geometry-cleanup* force field, not a
 > replacement for quantum-chemical optimization. Its energies are in internal,
