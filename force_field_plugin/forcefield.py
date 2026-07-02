@@ -91,6 +91,7 @@ _K_BOND = 700.0    # energy / Angstrom^2
 _K_ANGLE = 120.0   # energy / radian^2
 _K_OOP = 40.0      # energy / radian^2, on the angle-sum around sp2 centers
 _VDW_EPS = 0.10    # LJ well depth (energy)
+_VDW_14_SCALE = 0.5  # conventional scaling of 1-4 LJ interactions
 
 # Per-bond torsional barriers (energy), split evenly across all dihedrals
 # sharing the central bond, so the barrier does not grow with substitution.
@@ -310,6 +311,8 @@ def build_topology(
                 pass
         topo.bonds.append((key[0], key[1], r0))
 
+    rest_length = {(i, j): r0 for i, j, r0 in topo.bonds}
+
     for j in range(n):
         nbrs = sorted(neighbors[j])
         if len(nbrs) < 2:
@@ -317,7 +320,20 @@ def build_topology(
         theta0 = math.radians(_ideal_angle_deg(hyb(j), len(nbrs)))
         for a, atom_a in enumerate(nbrs):
             for atom_b in nbrs[a + 1:]:
-                topo.angles.append((atom_a, j, atom_b, theta0))
+                target = theta0
+                if atom_b in neighbors[atom_a]:
+                    # Three-membered ring: the hybridization-based angle
+                    # would fight the three bond terms. Use the exact angle
+                    # the rest lengths dictate (law of cosines) so bonds and
+                    # angles share one minimum (e.g. 60 deg in cyclopropane).
+                    r1 = rest_length[(min(atom_a, j), max(atom_a, j))]
+                    r2 = rest_length[(min(atom_b, j), max(atom_b, j))]
+                    r3 = rest_length[
+                        (min(atom_a, atom_b), max(atom_a, atom_b))
+                    ]
+                    cos_t = (r1 * r1 + r2 * r2 - r3 * r3) / (2.0 * r1 * r2)
+                    target = math.acos(max(-1.0, min(1.0, cos_t)))
+                topo.angles.append((atom_a, j, atom_b, target))
 
     # Torsions: one term per i-j-k-l path around every j-k bond whose two
     # central atoms both have a recognized (sp2/sp3) hybridization. The
@@ -347,20 +363,29 @@ def build_topology(
         if len(nbrs) == 3:
             topo.oops.append((j, nbrs[0], nbrs[1], nbrs[2]))
 
-    # Non-bonded: every pair separated by more than two bonds (exclude 1-2, 1-3).
+    # Non-bonded: every pair separated by more than two bonds (exclude 1-2,
+    # 1-3); 1-4 pairs get the conventionally halved LJ well depth so torsional
+    # profiles are not swamped by the vdW clash of the end atoms.
     excluded = set()
+    pairs14 = set()
     for i in range(n):
         for j in neighbors[i]:
             excluded.add((min(i, j), max(i, j)))
             for k in neighbors[j]:
-                if k != i:
-                    excluded.add((min(i, k), max(i, k)))
+                if k == i:
+                    continue
+                excluded.add((min(i, k), max(i, k)))
+                for l in neighbors[k]:
+                    if l not in (i, j):
+                        pairs14.add((min(i, l), max(i, l)))
+    pairs14 -= excluded
     for i in range(n):
         for j in range(i + 1, n):
             if (i, j) in excluded:
                 continue
             rmin = vdw_radius(atomic_numbers[i]) + vdw_radius(atomic_numbers[j])
-            topo.vdw_pairs.append((i, j, rmin, _VDW_EPS))
+            eps = _VDW_EPS * (_VDW_14_SCALE if (i, j) in pairs14 else 1.0)
+            topo.vdw_pairs.append((i, j, rmin, eps))
 
     return topo
 
@@ -368,14 +393,14 @@ def build_topology(
 # --- Energy & analytical gradient -------------------------------------------
 
 
-def _angle_terms(
+def _bend_terms(
     coords: np.ndarray, ii: np.ndarray, jj: np.ndarray, kk: np.ndarray
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Vectorized bend angles i-j-k and their gradients.
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Vectorized bend geometry for angles i-j-k.
 
-    Returns (theta, dtheta_di, dtheta_dk); the vertex gradient is
-    ``-(dtheta_di + dtheta_dk)`` by translational invariance. Terms with a
-    degenerate (zero-length) arm get zero gradient.
+    Returns (theta, cos_theta, dcos_di, dcos_dk); the vertex derivative is
+    ``-(dcos_di + dcos_dk)`` by translational invariance. Terms with a
+    degenerate (zero-length) arm get zero derivatives.
     """
     rij = coords[ii] - coords[jj]
     rkj = coords[kk] - coords[jj]
@@ -387,11 +412,29 @@ def _angle_terms(
 
     cos_t = np.clip(np.sum(rij * rkj, axis=1) / (nij * nkj), -1.0, 1.0)
     theta = np.arccos(cos_t)
-    sin_t = np.sqrt(np.maximum(1.0 - cos_t * cos_t, 1e-12))
 
-    dcos_di = rkj / (nij * nkj)[:, None] - (cos_t / nij**2)[:, None] * rij
-    dcos_dk = rij / (nij * nkj)[:, None] - (cos_t / nkj**2)[:, None] * rkj
-    inv = np.where(safe, -1.0 / sin_t, 0.0)[:, None]
+    zero = np.where(safe, 1.0, 0.0)[:, None]
+    dcos_di = zero * (
+        rkj / (nij * nkj)[:, None] - (cos_t / nij**2)[:, None] * rij
+    )
+    dcos_dk = zero * (
+        rij / (nij * nkj)[:, None] - (cos_t / nkj**2)[:, None] * rkj
+    )
+    return theta, cos_t, dcos_di, dcos_dk
+
+
+def _angle_terms(
+    coords: np.ndarray, ii: np.ndarray, jj: np.ndarray, kk: np.ndarray
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Vectorized bend angles i-j-k and their theta-gradients.
+
+    Returns (theta, dtheta_di, dtheta_dk). Only valid away from theta = 0 or
+    pi, where d(theta)/d(cos) diverges — linear angles must use the cosine
+    form instead (see the angle section of :func:`energy_and_gradient`).
+    """
+    theta, cos_t, dcos_di, dcos_dk = _bend_terms(coords, ii, jj, kk)
+    sin_t = np.sqrt(np.maximum(1.0 - cos_t * cos_t, 1e-12))
+    inv = (-1.0 / sin_t)[:, None]
     return theta, inv * dcos_di, inv * dcos_dk
 
 
@@ -422,16 +465,33 @@ def energy_and_gradient(
         np.add.at(grad, bond_ij[:, 0], g)
         np.add.at(grad, bond_ij[:, 1], -g)
 
-    # --- Angles: 0.5 * k * (theta - theta0)^2 ---
+    # --- Angles ---
+    # Ordinary angles: 0.5 * k * (theta - theta0)^2. Linear targets
+    # (theta0 = pi, sp centers): k * (1 + cos theta), which has the same
+    # curvature at theta = pi but a finite gradient there — the harmonic
+    # form's d(theta)/d(cos) diverges exactly at the linear minimum.
     angle_ijk = arrays["angle_ijk"]
     if len(angle_ijk):
         ii, jj, kk = angle_ijk[:, 0], angle_ijk[:, 1], angle_ijk[:, 2]
-        theta, dth_di, dth_dk = _angle_terms(coords, ii, jj, kk)
-        dtheta = theta - arrays["angle_t0"]
-        energy += 0.5 * _K_ANGLE * float(np.sum(dtheta * dtheta))
-        de = (_K_ANGLE * dtheta)[:, None]
-        gi = de * dth_di
-        gk = de * dth_dk
+        theta, cos_t, dcos_di, dcos_dk = _bend_terms(coords, ii, jj, kk)
+        t0 = arrays["angle_t0"]
+        linear = t0 > math.pi - 1e-6
+        dtheta = theta - t0
+        energy += float(
+            np.sum(
+                np.where(
+                    linear,
+                    _K_ANGLE * (1.0 + cos_t),
+                    0.5 * _K_ANGLE * dtheta * dtheta,
+                )
+            )
+        )
+        sin_t = np.sqrt(np.maximum(1.0 - cos_t * cos_t, 1e-12))
+        de_dcos = np.where(
+            linear, _K_ANGLE, -_K_ANGLE * dtheta / sin_t
+        )[:, None]
+        gi = de_dcos * dcos_di
+        gk = de_dcos * dcos_dk
         np.add.at(grad, ii, gi)
         np.add.at(grad, kk, gk)
         np.add.at(grad, jj, -(gi + gk))

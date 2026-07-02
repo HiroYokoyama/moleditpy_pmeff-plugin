@@ -125,6 +125,87 @@ def test_torsions_assigned_for_sp2_and_sp3_bonds():
     assert all(n == 3 for *_rest, n, _g in ethane.torsions)
 
 
+def test_three_ring_angles_use_law_of_cosines():
+    # Bare C3 ring: equal rest lengths -> equilateral -> 60 deg targets,
+    # so bonds and angles share a single minimum instead of fighting.
+    topo = ff.build_topology(
+        [6, 6, 6], [(0, 1), (1, 2), (0, 2)], ["SP3"] * 3
+    )
+    assert len(topo.angles) == 3
+    for *_ijk, theta0 in topo.angles:
+        assert math.degrees(theta0) == pytest.approx(60.0, abs=1e-6)
+    # At the exact equilateral geometry every bonded term is at rest.
+    r0 = topo.bonds[0][2]
+    coords = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [r0, 0.0, 0.0],
+            [r0 / 2, r0 * math.sqrt(3) / 2, 0.0],
+        ]
+    )
+    energy, grad = ff.energy_and_gradient(coords, topo)
+    assert energy == pytest.approx(0.0, abs=1e-9)
+    assert np.abs(grad).max() < 1e-9
+
+
+def test_linear_sp_center_stays_linear_with_finite_gradient():
+    # CO2: sp carbon, theta0 = 180 deg. The cosine bending form must give a
+    # zero (not divergent) gradient at the exactly linear geometry ...
+    topo = ff.build_topology(
+        [8, 6, 8], [(0, 1), (1, 2)], [None, "SP", None], bond_orders=[2, 2]
+    )
+    r0 = topo.bonds[0][2]
+    linear = np.array([[-r0, 0.0, 0.0], [0.0, 0.0, 0.0], [r0, 0.0, 0.0]])
+    energy, grad = ff.energy_and_gradient(linear, topo)
+    assert np.all(np.isfinite(grad))
+    assert np.abs(grad).max() < 1e-9
+    assert energy == pytest.approx(0.0, abs=1e-9)
+
+    # ... and a bent start must relax back to linear.
+    bent = np.array(
+        [
+            [-r0 * 0.94, r0 * 0.34, 0.0],
+            [0.0, 0.0, 0.0],
+            [r0 * 0.94, r0 * 0.34, 0.0],
+        ]
+    )
+    out, result = ff.optimize(bent, topo, max_iter=2000)
+    assert result.converged
+    v1 = out[0] - out[1]
+    v2 = out[2] - out[1]
+    angle = math.degrees(
+        math.acos(
+            float(np.dot(v1, v2))
+            / float(np.linalg.norm(v1) * np.linalg.norm(v2))
+        )
+    )
+    assert angle == pytest.approx(180.0, abs=1.0)
+
+
+def test_gradient_matches_numeric_near_linear_angle():
+    topo = ff.build_topology(
+        [8, 6, 8], [(0, 1), (1, 2)], [None, "SP", None], bond_orders=[2, 2]
+    )
+    # Slightly bent, slightly stretched — off-minimum in every term.
+    coords = np.array(
+        [[-1.15, 0.06, 0.02], [0.0, 0.0, 0.0], [1.18, 0.05, -0.03]]
+    )
+    _, analytic = ff.energy_and_gradient(coords, topo)
+    numeric = _numeric_gradient(coords, topo)
+    assert np.allclose(analytic, numeric, atol=1e-4)
+
+
+def test_vdw_14_pairs_get_half_epsilon():
+    # Pentane-like chain: (0,3) is 1-4 (half eps), (0,4) is 1-5 (full eps).
+    topo = ff.build_topology(
+        [6] * 5, [(0, 1), (1, 2), (2, 3), (3, 4)], None
+    )
+    eps = {(i, j): e for i, j, _rmin, e in topo.vdw_pairs}
+    assert eps[(0, 3)] == pytest.approx(ff._VDW_EPS * ff._VDW_14_SCALE)
+    assert eps[(1, 4)] == pytest.approx(ff._VDW_EPS * ff._VDW_14_SCALE)
+    assert eps[(0, 4)] == pytest.approx(ff._VDW_EPS)
+
+
 def test_no_torsions_without_hybridization():
     topo = ff.build_topology([6, 6, 6, 6], [(0, 1), (1, 2), (2, 3)], None)
     assert topo.torsions == []
