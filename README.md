@@ -31,7 +31,8 @@ PMEFF is a five-term force field:
 
 - **Bonds** — harmonic, `½·k·(r − r₀)²`, with the rest length `r₀` taken as the
   sum of the two atoms' covalent radii, scaled down by bond order (double
-  ×0.89, triple ×0.78, aromatic interpolated → C(ar)–C(ar) 1.42 Å).
+  ×0.89, triple ×0.78, aromatic interpolated → C(ar)–C(ar) 1.42 Å). The force
+  constant scales linearly with bond order, so C≡C is ~3× as stiff as C–C.
 - **Angles** — harmonic in the bend angle, `½·k·(θ − θ₀)²`, with the ideal angle
   `θ₀` inferred from the central atom's hybridization (falling back to its
   coordination number for metals and other cases where hybridization is
@@ -44,15 +45,20 @@ PMEFF is a five-term force field:
   for sp²–sp² bonds (keeps double bonds and conjugated systems planar), 3-fold
   for sp³–sp³ bonds (staggered minima), and a weak 6-fold term for mixed
   sp²–sp³ bonds. The per-bond barrier is split evenly over all dihedrals
-  sharing the bond, UFF-style, so it doesn't grow with substitution.
+  sharing the bond, UFF-style, so it doesn't grow with substitution, and the
+  2-fold barrier scales with the π character of the central bond — full for a
+  double bond, reduced for aromatic, weak for a conjugated single bond, so
+  biphenyl can twist while ethylene stays rigid.
 - **Out-of-plane** — a harmonic penalty on the pyramidalization of
   3-coordinate sp² centers, expressed through the sum of the three bend angles
   around the center (planar ⇔ 360°).
 - **van der Waals** — a Lennard-Jones 12-6 term whose per-atom radius is the
   covalent radius plus a fixed 0.90 Å offset. This reproduces the tabulated vdW
   radii of the common elements to within ~0.05 Å (C → 1.65 Å vs. 1.70 Å,
-  O → 1.53 Å vs. 1.52 Å, H → 1.22 Å vs. 1.20 Å). 1-2 and 1-3 pairs are
-  excluded; 1-4 pairs get the conventional half well depth.
+  O → 1.53 Å vs. 1.52 Å, H → 1.22 Å vs. 1.20 Å). Well depths are derived per
+  atom from the covalent radius as a polarizability proxy (carbon anchors the
+  scale) and combined with the Lorentz–Berthelot geometric mean. 1-2 and 1-3
+  pairs are excluded; 1-4 pairs get the conventional half well depth.
 
 Geometry optimization uses **FIRE** (Fast Inertial Relaxation Engine) with a
 per-atom displacement clamp for stability, plus fully **analytical gradients**
