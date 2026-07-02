@@ -35,7 +35,11 @@ PMEFF is a five-term force field:
 - **Angles** — harmonic in the bend angle, `½·k·(θ − θ₀)²`, with the ideal angle
   `θ₀` inferred from the central atom's hybridization (falling back to its
   coordination number for metals and other cases where hybridization is
-  ambiguous).
+  ambiguous). Two special cases: in-ring angles of three-membered rings take
+  their target from the law of cosines over the bond rest lengths (60° in
+  cyclopropane), so bonds and angles share one minimum; and linear sp centers
+  use `k·(1 + cos θ)`, which matches the harmonic curvature at 180° but keeps
+  the gradient finite at the linear minimum.
 - **Torsions** — a cosine dihedral potential `½·V·(1 + cos(n·φ − γ))`: 2-fold
   for sp²–sp² bonds (keeps double bonds and conjugated systems planar), 3-fold
   for sp³–sp³ bonds (staggered minima), and a weak 6-fold term for mixed
@@ -47,7 +51,8 @@ PMEFF is a five-term force field:
 - **van der Waals** — a Lennard-Jones 12-6 term whose per-atom radius is the
   covalent radius plus a fixed 0.90 Å offset. This reproduces the tabulated vdW
   radii of the common elements to within ~0.05 Å (C → 1.65 Å vs. 1.70 Å,
-  O → 1.53 Å vs. 1.52 Å, H → 1.22 Å vs. 1.20 Å).
+  O → 1.53 Å vs. 1.52 Å, H → 1.22 Å vs. 1.20 Å). 1-2 and 1-3 pairs are
+  excluded; 1-4 pairs get the conventional half well depth.
 
 Geometry optimization uses **FIRE** (Fast Inertial Relaxation Engine) with a
 per-atom displacement clamp for stability, plus fully **analytical gradients**
