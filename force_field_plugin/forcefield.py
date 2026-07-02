@@ -109,6 +109,30 @@ _V_TORSION_MIXED = 0.5  # sp2-sp3: 6-fold, nearly free rotation
 # orders are interpolated linearly; aromatic C-C comes out at 1.42 A.
 _BOND_ORDER_ANCHORS = ((1.0, 1.00), (2.0, 0.89), (3.0, 0.78))
 
+# --- Optional "electronic effects" parameters --------------------------------
+
+# Coulomb constant in the internal (kcal/mol-like) energy scale, per e^2/A.
+_K_COULOMB = 332.07
+_ELEC_14_SCALE = 0.5   # scaling of 1-4 electrostatic interactions
+_EV_COULOMB = 14.4     # e^2/(4 pi eps0), in eV*Angstrom, for the QEq solve
+# Approximate Pauling -> Mulliken (eV) electronegativity conversion.
+_CHI_EV_PER_PAULING = 2.27
+
+# Metals that adopt a square-planar geometry when 4-coordinate (common d8
+# centers). Used only when electronic effects are enabled.
+_SQUARE_PLANAR_METALS = frozenset({28, 45, 46, 77, 78, 79})  # Ni Rh Pd Ir Pt Au
+# Sentinel theta0 marking a square-planar angle term: the energy picks the
+# nearest of the two ideal vertex angles (90 or 180 degrees) at runtime.
+_SQ_PLANAR_T0 = -1.0
+
+# Aufbau filling order as (n, l, capacity), for Slater's rules.
+_AUFBAU: Tuple[Tuple[int, int, int], ...] = (
+    (1, 0, 2), (2, 0, 2), (2, 1, 6), (3, 0, 2), (3, 1, 6), (4, 0, 2),
+    (3, 2, 10), (4, 1, 6), (5, 0, 2), (4, 2, 10), (5, 1, 6), (6, 0, 2),
+    (4, 3, 14), (5, 2, 10), (6, 1, 6), (7, 0, 2), (5, 3, 14), (6, 2, 10),
+    (7, 1, 6),
+)
+
 # Ideal bond angle (degrees) by central-atom coordination number, used when the
 # hybridization is unknown (common for metals).
 _ANGLE_BY_COORDINATION = {
@@ -167,6 +191,89 @@ def bond_order_factor(order: float) -> float:
     return anchors[-1][1]
 
 
+def slater_zeff(atomic_number: int) -> float:
+    """Effective nuclear charge felt by the outermost s/p shell (Slater).
+
+    Derived entirely from the atomic number via the Aufbau occupation and
+    Slater's screening rules — no per-element table — so it covers the whole
+    periodic table like every other PMEFF parameter.
+    """
+    z = min(max(int(atomic_number), 1), 118)
+    per_n: Dict[int, int] = {}
+    n_valence = 1
+    remaining = z
+    for n, _l, cap in _AUFBAU:
+        if remaining <= 0:
+            break
+        fill = min(cap, remaining)
+        per_n[n] = per_n.get(n, 0) + fill
+        remaining -= fill
+        n_valence = max(n_valence, n)
+    same = per_n.get(n_valence, 0) - 1
+    if n_valence == 1:
+        return z - 0.30 * same
+    inner = per_n.get(n_valence - 1, 0)
+    deeper = sum(c for n, c in per_n.items() if n <= n_valence - 2)
+    return z - 0.35 * same - 0.85 * inner - 1.0 * deeper
+
+
+def electronegativity(atomic_number: int) -> float:
+    """Allred-Rochow electronegativity (eV, Mulliken-like scale).
+
+    chi_AR = 0.359 * Zeff / r^2 + 0.744 on the Pauling scale, using the
+    Slater effective charge and the Pyykko covalent radius, then converted
+    to an energy scale for the QEq charge solve.
+    """
+    r = covalent_radius(atomic_number)
+    chi_pauling = 0.359 * slater_zeff(atomic_number) / (r * r) + 0.744
+    return _CHI_EV_PER_PAULING * chi_pauling
+
+
+def hardness(atomic_number: int) -> float:
+    """Chemical hardness (eV): the self-Coulomb of a sphere of the covalent
+    radius, which resists piling charge onto small atoms."""
+    return _EV_COULOMB / (2.0 * covalent_radius(atomic_number))
+
+
+def qeq_charges(
+    atomic_numbers: Sequence[int],
+    coords: np.ndarray,
+    total_charge: float = 0.0,
+) -> np.ndarray:
+    """Electronegativity-equalization (QEq-style) partial charges.
+
+    Minimizes ``sum(chi_i q_i + 0.5 eta_i q_i^2) + sum_ij J_ij q_i q_j``
+    subject to ``sum(q) = total_charge``, with an Ohno-shielded Coulomb
+    interaction ``J_ij = 14.4 / sqrt(r^2 + gamma^2)`` that tends to the mean
+    hardness at r = 0. One linear solve; charges are then held fixed.
+    """
+    n = len(atomic_numbers)
+    if n == 0:
+        return np.zeros(0)
+    if n == 1:
+        return np.array([float(total_charge)])
+
+    chi = np.array([electronegativity(z) for z in atomic_numbers])
+    eta = np.array([hardness(z) for z in atomic_numbers])
+    coords = np.asarray(coords, dtype=float)
+    d = np.linalg.norm(coords[:, None, :] - coords[None, :, :], axis=2)
+    gamma = 2.0 * _EV_COULOMB / (eta[:, None] + eta[None, :])
+    a = _EV_COULOMB / np.sqrt(d * d + gamma * gamma)
+    np.fill_diagonal(a, eta)
+
+    system = np.zeros((n + 1, n + 1))
+    system[:n, :n] = a
+    system[:n, n] = 1.0
+    system[n, :n] = 1.0
+    rhs = np.concatenate([-chi, [float(total_charge)]])
+    try:
+        solution = np.linalg.solve(system, rhs)
+    except np.linalg.LinAlgError:  # coincident atoms etc.
+        logger.warning("PMEFF: QEq solve failed; using zero charges.")
+        return np.zeros(n)
+    return solution[:n]
+
+
 @dataclass
 class Topology:
     """A force-field problem stripped of any RDKit/Qt dependency.
@@ -182,6 +289,10 @@ class Topology:
             a, b, c, kept planar by a harmonic on the sum of the three bend
             angles around j.
         vdw_pairs: List of (i, j, rmin, eps) — non-bonded LJ interactions.
+        elec_pairs: List of (i, j, kqq, gamma) — shielded Coulomb
+            interactions with energy ``kqq / sqrt(r^2 + gamma^2)``; kqq
+            already contains the Coulomb constant, both charges and any 1-4
+            scaling. Empty unless electronic effects are enabled.
     """
 
     atomic_numbers: Sequence[int]
@@ -192,6 +303,7 @@ class Topology:
     )
     oops: List[Tuple[int, int, int, int]] = field(default_factory=list)
     vdw_pairs: List[Tuple[int, int, float, float]] = field(default_factory=list)
+    elec_pairs: List[Tuple[int, int, float, float]] = field(default_factory=list)
 
     @property
     def num_atoms(self) -> int:
@@ -210,6 +322,7 @@ class Topology:
             len(self.torsions),
             len(self.oops),
             len(self.vdw_pairs),
+            len(self.elec_pairs),
         )
         cache = getattr(self, "_compiled_cache", None)
         if cache is not None and cache[0] == key:
@@ -220,6 +333,7 @@ class Topology:
         torsions = np.array(self.torsions, dtype=float).reshape(-1, 7)
         oops = np.array(self.oops, dtype=int).reshape(-1, 4)
         vdw = np.array(self.vdw_pairs, dtype=float).reshape(-1, 4)
+        elec = np.array(self.elec_pairs, dtype=float).reshape(-1, 4)
         arrays: Dict[str, np.ndarray] = {
             "bond_ij": bonds[:, :2].astype(int),
             "bond_r0": bonds[:, 2],
@@ -234,6 +348,9 @@ class Topology:
             "vdw_ij": vdw[:, :2].astype(int),
             "vdw_rmin": vdw[:, 2],
             "vdw_eps": vdw[:, 3],
+            "elec_ij": elec[:, :2].astype(int),
+            "elec_kqq": elec[:, 2],
+            "elec_gamma": elec[:, 3],
         }
         self._compiled_cache = (key, arrays)  # type: ignore[attr-defined]
         return arrays
@@ -283,6 +400,8 @@ def build_topology(
     bond_pairs: Sequence[Tuple[int, int]],
     hybridizations: Optional[Sequence[Optional[str]]] = None,
     bond_orders: Optional[Sequence[float]] = None,
+    charges: Optional[Sequence[float]] = None,
+    square_planar_metals: bool = False,
 ) -> Topology:
     """Assemble a :class:`Topology` from connectivity alone.
 
@@ -297,6 +416,12 @@ def build_topology(
             (1 single, 1.5 aromatic, 2 double, 3 triple). Rest lengths of
             higher-order bonds are shortened accordingly; omitted or
             unrecognized entries are treated as single bonds.
+        charges: Optional per-atom partial charges (e.g. from
+            :func:`qeq_charges`). When given, non-excluded pairs get a
+            shielded Coulomb interaction (1-4 pairs scaled by 0.5).
+        square_planar_metals: When True, 4-coordinate common-d8 metal
+            centers (Ni, Pd, Pt, Rh, Ir, Au) get square-planar angle terms
+            (nearest of 90/180 degrees) instead of tetrahedral ones.
     """
     n = len(atomic_numbers)
     neighbors: List[set] = [set() for _ in range(n)]
@@ -339,7 +464,14 @@ def build_topology(
         nbrs = sorted(neighbors[j])
         if len(nbrs) < 2:
             continue
-        theta0 = math.radians(_ideal_angle_deg(hyb(j), len(nbrs)))
+        if (
+            square_planar_metals
+            and len(nbrs) == 4
+            and atomic_numbers[j] in _SQUARE_PLANAR_METALS
+        ):
+            theta0 = _SQ_PLANAR_T0
+        else:
+            theta0 = math.radians(_ideal_angle_deg(hyb(j), len(nbrs)))
         for a, atom_a in enumerate(nbrs):
             for atom_b in nbrs[a + 1:]:
                 target = theta0
@@ -418,6 +550,16 @@ def build_topology(
             if (i, j) in pairs14:
                 eps *= _VDW_14_SCALE
             topo.vdw_pairs.append((i, j, rmin, eps))
+            if charges is not None:
+                kqq = _K_COULOMB * float(charges[i]) * float(charges[j])
+                if (i, j) in pairs14:
+                    kqq *= _ELEC_14_SCALE
+                if abs(kqq) > 1e-12:
+                    gamma = 0.5 * (
+                        covalent_radius(atomic_numbers[i])
+                        + covalent_radius(atomic_numbers[j])
+                    )
+                    topo.elec_pairs.append((i, j, kqq, gamma))
 
     return topo
 
@@ -508,6 +650,14 @@ def energy_and_gradient(
         ii, jj, kk = angle_ijk[:, 0], angle_ijk[:, 1], angle_ijk[:, 2]
         theta, cos_t, dcos_di, dcos_dk = _bend_terms(coords, ii, jj, kk)
         t0 = arrays["angle_t0"]
+        # Square-planar sentinel: pull toward whichever ideal vertex angle
+        # (90 or 180 degrees) is closer, letting cis/trans assignment emerge
+        # from the geometry itself.
+        t0 = np.where(
+            t0 < 0.0,
+            np.where(theta < 0.75 * math.pi, 0.5 * math.pi, math.pi),
+            t0,
+        )
         linear = t0 > math.pi - 1e-6
         dtheta = theta - t0
         energy += float(
@@ -608,6 +758,18 @@ def energy_and_gradient(
         np.add.at(grad, vdw_ij[:, 0], g)
         np.add.at(grad, vdw_ij[:, 1], -g)
 
+    # --- Electrostatics: kqq / sqrt(r^2 + gamma^2) (shielded Coulomb) ---
+    elec_ij = arrays["elec_ij"]
+    if len(elec_ij):
+        d = coords[elec_ij[:, 0]] - coords[elec_ij[:, 1]]
+        kqq = arrays["elec_kqq"]
+        gamma = arrays["elec_gamma"]
+        inv = 1.0 / np.sqrt(np.sum(d * d, axis=1) + gamma * gamma)
+        energy += float(np.sum(kqq * inv))
+        g = (-(kqq * inv**3))[:, None] * d
+        np.add.at(grad, elec_ij[:, 0], g)
+        np.add.at(grad, elec_ij[:, 1], -g)
+
     return energy, grad
 
 
@@ -706,8 +868,13 @@ def optimize(
 # --- RDKit boundary ---------------------------------------------------------
 
 
-def topology_from_rdkit(mol: Any) -> Topology:
-    """Build a :class:`Topology` from an RDKit molecule's connectivity."""
+def topology_from_rdkit(mol: Any, electronic_effects: bool = False) -> Topology:
+    """Build a :class:`Topology` from an RDKit molecule's connectivity.
+
+    With *electronic_effects* enabled, QEq partial charges are derived from
+    the conformer geometry (adding a shielded Coulomb term) and 4-coordinate
+    d8 metal centers get square-planar angle targets.
+    """
     atomic_numbers = [atom.GetAtomicNum() for atom in mol.GetAtoms()]
     bond_pairs = [
         (b.GetBeginAtomIdx(), b.GetEndAtomIdx()) for b in mol.GetBonds()
@@ -724,7 +891,24 @@ def topology_from_rdkit(mol: Any) -> Topology:
             hybridizations.append(str(atom.GetHybridization()))
         except Exception:  # pragma: no cover - defensive
             hybridizations.append(None)
-    return build_topology(atomic_numbers, bond_pairs, hybridizations, bond_orders)
+
+    charges: Optional[np.ndarray] = None
+    if electronic_effects:
+        coords = _conformer_coords(mol)
+        if coords is not None:
+            total = float(
+                sum(atom.GetFormalCharge() for atom in mol.GetAtoms())
+            )
+            charges = qeq_charges(atomic_numbers, coords, total)
+
+    return build_topology(
+        atomic_numbers,
+        bond_pairs,
+        hybridizations,
+        bond_orders,
+        charges=charges,
+        square_planar_metals=electronic_effects,
+    )
 
 
 def _conformer_coords(mol: Any) -> Optional[np.ndarray]:
@@ -741,18 +925,21 @@ def _conformer_coords(mol: Any) -> Optional[np.ndarray]:
     return coords
 
 
-def compute_energy(mol: Any) -> Optional[float]:
+def compute_energy(mol: Any, electronic_effects: bool = False) -> Optional[float]:
     """Return the PMEFF single-point energy of *mol*, or None if unavailable."""
     coords = _conformer_coords(mol)
     if coords is None:
         return None
-    topo = topology_from_rdkit(mol)
+    topo = topology_from_rdkit(mol, electronic_effects=electronic_effects)
     energy, _ = energy_and_gradient(coords, topo)
     return energy
 
 
 def optimize_rdkit_mol(
-    mol: Any, max_iter: int = 500, f_tol: float = 1e-3
+    mol: Any,
+    max_iter: int = 500,
+    f_tol: float = 1e-3,
+    electronic_effects: bool = False,
 ) -> Tuple[bool, Optional[OptimizeResult]]:
     """Optimize an RDKit molecule's conformer in place with PMEFF.
 
@@ -768,7 +955,7 @@ def optimize_rdkit_mol(
         logger.warning("PMEFF: molecule has no 3D conformer to optimize.")
         return False, None
 
-    topo = topology_from_rdkit(mol)
+    topo = topology_from_rdkit(mol, electronic_effects=electronic_effects)
     new_coords, result = optimize(coords, topo, max_iter=max_iter, f_tol=f_tol)
 
     if not np.all(np.isfinite(new_coords)):
