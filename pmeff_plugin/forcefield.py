@@ -136,6 +136,14 @@ _ELEC_14_SCALE = 0.5   # scaling of 1-4 electrostatic interactions
 _EV_COULOMB = 14.4     # e^2/(4 pi eps0), in eV*Angstrom, for the QEq solve
 # Approximate Pauling -> Mulliken (eV) electronegativity conversion.
 _CHI_EV_PER_PAULING = 2.27
+# Bare electronegativity equalization is known to over-polarize: it allows
+# unlimited charge transfer at any distance, so electropositive centers
+# (metals, boron) acquire charges large enough that their Coulomb pull on
+# nearby H/heteroatoms deforms the bonded skeleton. Scaling the hardness up
+# damps the charge transfer (roughly halving charges, quartering pair
+# energies) while conserving the total charge *exactly* — unlike scaling the
+# solved charges, which would break conservation for ions.
+_QEQ_HARDNESS_SCALE = 2.0
 
 # Metals that adopt a square-planar geometry when 4-coordinate (common d8
 # centers). Used only when electronic effects are enabled.
@@ -250,8 +258,11 @@ def electronegativity(atomic_number: int) -> float:
 
 def hardness(atomic_number: int) -> float:
     """Chemical hardness (eV): the self-Coulomb of a sphere of the covalent
-    radius, which resists piling charge onto small atoms."""
-    return _EV_COULOMB / (2.0 * covalent_radius(atomic_number))
+    radius, which resists piling charge onto small atoms. Scaled up by
+    :data:`_QEQ_HARDNESS_SCALE` to damp QEq's tendency to over-polarize."""
+    return (
+        _QEQ_HARDNESS_SCALE * _EV_COULOMB / (2.0 * covalent_radius(atomic_number))
+    )
 
 
 def qeq_charges(
@@ -331,6 +342,10 @@ class Topology:
     # LJ pair list for new coordinates without the original bond list.
     excluded_pairs: Optional[frozenset] = None
     pairs14: Optional[frozenset] = None
+    # Total molecular charge for dynamic QEq: when set, the optimizer
+    # re-solves the charges (and rebuilds elec_pairs) whenever the geometry
+    # has drifted enough to invalidate them. None = charges stay fixed.
+    qeq_total_charge: Optional[float] = None
 
     @property
     def num_atoms(self) -> int:
@@ -539,6 +554,28 @@ def refresh_vdw_pairs(topo: Topology, coords: np.ndarray) -> None:
     ]
     # The compiled-array cache is keyed on term-list lengths only; a refresh
     # can swap pairs without changing the count, so drop it explicitly.
+    topo._compiled_cache = None  # pylint: disable=protected-access
+
+
+def refresh_qeq_charges(topo: Topology, coords: np.ndarray) -> None:
+    """Re-solve the QEq charges for *coords* and rebuild the Coulomb pairs.
+
+    The QEq solution depends on the geometry, so charges baked into the pair
+    list at build time describe a geometry that no longer exists after a
+    large relaxation. Because the charges *minimize* the QEq energy, the
+    fixed-charge gradient stays exact at the re-solved charges (envelope
+    theorem) — refreshing costs one linear solve and adds no gradient terms.
+    No-op unless the topology carries a dynamic-charge total
+    (:attr:`Topology.qeq_total_charge`).
+    """
+    if topo.qeq_total_charge is None or topo.excluded_pairs is None:
+        return
+    charges = qeq_charges(topo.atomic_numbers, coords, topo.qeq_total_charge)
+    topo.elec_pairs = _elec_pair_list(
+        topo.atomic_numbers, charges, topo.excluded_pairs, topo.pairs14
+    )
+    # Pair count may change (near-zero products are dropped) or stay the
+    # same with different kqq values; either way the cache must go.
     topo._compiled_cache = None  # pylint: disable=protected-access
 
 
@@ -1063,9 +1100,10 @@ def optimize(
     steps_since_neg = 0
     dx = np.zeros_like(x)  # last applied (clamped) displacement
 
-    # Verlet-list bookkeeping: x_ref is where the pair list was last valid.
-    track_pairs = (
-        topo.vdw_cutoff is not None and topo.excluded_pairs is not None
+    # Verlet-list bookkeeping: x_ref is where the pair data was last valid
+    # (the LJ list, and the QEq charges when they are dynamic).
+    track_pairs = topo.excluded_pairs is not None and (
+        topo.vdw_cutoff is not None or topo.qeq_total_charge is not None
     )
     x_ref = x.copy() if track_pairs else None
     half_skin = 0.5 * _VDW_SKIN_A
@@ -1114,6 +1152,7 @@ def optimize(
             drift = float(np.max(np.linalg.norm(x - x_ref, axis=1)))
             if drift > half_skin:
                 refresh_vdw_pairs(topo, x)
+                refresh_qeq_charges(topo, x)
                 x_ref = x.copy()
 
         energy, grad = energy_and_gradient(x, topo)
@@ -1154,11 +1193,12 @@ def topology_from_rdkit(mol: Any, electronic_effects: bool = False) -> Topology:
 
     coords = _conformer_coords(mol)
     charges: Optional[np.ndarray] = None
+    total = 0.0
     if electronic_effects and coords is not None:
         total = float(sum(atom.GetFormalCharge() for atom in mol.GetAtoms()))
         charges = qeq_charges(atomic_numbers, coords, total)
 
-    return build_topology(
+    topo = build_topology(
         atomic_numbers,
         bond_pairs,
         hybridizations,
@@ -1168,6 +1208,12 @@ def topology_from_rdkit(mol: Any, electronic_effects: bool = False) -> Topology:
         coords=coords,
         vdw_cutoff=_VDW_CUTOFF_A,
     )
+    if charges is not None:
+        # Mark the charges as dynamic: the optimizer re-solves them as the
+        # geometry moves, keeping electrostatics consistent with the
+        # structure it is actually relaxing.
+        topo.qeq_total_charge = total
+    return topo
 
 
 def _conformer_coords(mol: Any) -> Optional[np.ndarray]:

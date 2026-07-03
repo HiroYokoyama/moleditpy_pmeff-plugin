@@ -115,6 +115,63 @@ def test_like_charges_repel():
     assert close > far > 0.0
 
 
+def test_hardness_scale_damps_polarization(monkeypatch):
+    # The scaled hardness must shrink charge magnitudes (the anti-"skeleton
+    # deformation" measure) while conserving the total charge exactly.
+    coords = np.array([[0.0, 0.0, 0.0], [0.96, 0.0, 0.0], [-0.24, 0.93, 0.0]])
+    q_soft = ff.qeq_charges([8, 1, 1], coords)
+    monkeypatch.setattr(ff, "_QEQ_HARDNESS_SCALE", 1.0)
+    q_bare = ff.qeq_charges([8, 1, 1], coords)
+    assert abs(q_soft[0]) < abs(q_bare[0])
+    assert np.sign(q_soft[0]) == np.sign(q_bare[0])
+    assert float(np.sum(q_soft)) == pytest.approx(0.0, abs=1e-9)
+
+
+def test_refresh_qeq_charges_follows_geometry():
+    topo, coords = _fcf_topology_with_charges()
+    topo.qeq_total_charge = 0.0
+    kqq_before = topo.elec_pairs[0][2]
+    ff.energy_and_gradient(coords, topo)  # warm the compiled-array cache
+
+    stretched = coords * 1.6
+    ff.refresh_qeq_charges(topo, stretched)
+    q_new = ff.qeq_charges([9, 6, 6, 9], stretched)
+    expected = ff._K_COULOMB * q_new[0] * q_new[3] * ff._ELEC_14_SCALE
+    i, j, kqq_after, _gamma = topo.elec_pairs[0]
+    assert (i, j) == (0, 3)
+    assert kqq_after == pytest.approx(expected)
+    assert kqq_after != pytest.approx(kqq_before)
+    # And the compiled cache must not serve the stale charges.
+    e_ref, _ = ff.energy_and_gradient(stretched, topo)
+    fresh = ff.build_topology(
+        [9, 6, 6, 9], [(0, 1), (1, 2), (2, 3)], ["SP3"] * 4, charges=q_new
+    )
+    e_fresh, _ = ff.energy_and_gradient(stretched, fresh)
+    assert e_ref == pytest.approx(e_fresh)
+
+
+def test_refresh_qeq_charges_noop_for_static_topologies():
+    topo, coords = _fcf_topology_with_charges()  # qeq_total_charge unset
+    before = list(topo.elec_pairs)
+    ff.refresh_qeq_charges(topo, coords * 2.0)
+    assert topo.elec_pairs == before
+
+
+def test_optimizer_resolves_dynamic_charges():
+    # Two identical atoms given fake opposite charges: with dynamic QEq the
+    # optimizer must re-solve on drift, discover q = 0 (equal
+    # electronegativities), and drop the spurious attraction.
+    atoms = [6, 6]
+    start = np.array([[0.0, 0.0, 0.0], [20.0, 0.0, 0.0]])
+    topo = ff.build_topology(
+        atoms, [], None, charges=[0.5, -0.5], coords=start, vdw_cutoff=12.0
+    )
+    topo.qeq_total_charge = 0.0
+    assert len(topo.elec_pairs) == 1
+    ff.optimize(start, topo, max_iter=200)
+    assert topo.elec_pairs == []
+
+
 # --- Square-planar d8 centers ---------------------------------------------------
 
 
