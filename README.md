@@ -52,7 +52,9 @@ gradient formulas, non-bonded bookkeeping and the optimizer — see the
   ambiguous). sp³ pnictogens and chalcogens are compressed below tetrahedral
   by their lone pairs (`4 − coordination` of them): mildly for period-2 atoms
   (NH₃ ≈ 107°, H₂O ≈ 104.5°), strongly for heavier congeners that bond through
-  near-pure p orbitals (H₂S/PH₃ ≈ 93°). Two more special cases: in-ring angles
+  near-pure p orbitals (H₂S/PH₃ ≈ 93°). The period-2 compression is calibrated
+  on hydrides and opens back toward tetrahedral for bulkier substituents
+  (dimethyl ether's C-O-C ≈ 110°, not 104.5°). Two more special cases: in-ring angles
   of three-membered rings take their target from the law of cosines over the
   bond rest lengths (60° in cyclopropane), so bonds and angles share one
   minimum; and linear sp centers use `k·(1 + cos θ)`, which matches the

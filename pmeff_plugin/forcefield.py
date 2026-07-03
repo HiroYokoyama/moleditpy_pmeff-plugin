@@ -261,6 +261,32 @@ def _sp3_lone_pair_angle(atomic_number: int, coordination: int) -> Optional[floa
     return _HEAVY_P_BLOCK_ANGLE_DEG
 
 
+def _sp3_lone_pair_blend(
+    atomic_number: int, coordination: int
+) -> Optional[Tuple[float, float]]:
+    """Return (open_deg, compressed_deg) for a period-2 sp3 lone-pair center.
+
+    The compressed target from :func:`_sp3_lone_pair_angle` is calibrated on
+    the *hydrides* (H2O 104.5, NH3 107). Bulkier substituents relieve the
+    compression sterically and open the angle back toward the tetrahedral
+    default — dimethyl ether is 111 deg, trimethylamine 111 deg, not 104-107.
+    The caller blends between the two endpoints by the fraction of hydrogen
+    substituents on each individual angle, so H-X-H stays fully compressed
+    while C-X-C reverts to ~tetrahedral.
+
+    Only period-2 centers (N, O) taper: heavier congeners bond through
+    near-pure p orbitals and stay near 90-99 deg regardless of substituent
+    (Me2S 99, H2S 92), so they keep the flat compressed target. Returns None
+    when no lone-pair compression applies.
+    """
+    if _period(atomic_number) != 2:
+        return None
+    compressed = _sp3_lone_pair_angle(atomic_number, coordination)
+    if compressed is None:
+        return None
+    return (109.47, compressed)
+
+
 def covalent_radius(atomic_number: int) -> float:
     """Return the single-bond covalent radius (Angstrom) for *atomic_number*.
 
@@ -879,10 +905,18 @@ def build_topology(
                         break
             if len(_selected) == n_trans:
                 _trans_pairs = frozenset(_selected)
+        lp_blend: Optional[Tuple[float, float]] = None
         if not is_special_metal:
             theta0 = math.radians(
                 _ideal_angle_deg(hyb(j), len(nbrs), atomic_numbers[j])
             )
+            # Lone-pair compression is calibrated on hydrides; open it back up
+            # per angle when the substituents are heavier (see
+            # _sp3_lone_pair_blend). Only period-2 N/O centers taper.
+            if (hyb(j) or "").upper() == "SP3":
+                blend = _sp3_lone_pair_blend(atomic_numbers[j], len(nbrs))
+                if blend is not None:
+                    lp_blend = (math.radians(blend[0]), math.radians(blend[1]))
         else:
             theta0 = _SQ_PLANAR_T0  # sentinel: used only when _trans_pairs is None
         for a, atom_a in enumerate(nbrs):
@@ -897,6 +931,15 @@ def build_topology(
                         target = _SQ_PLANAR_T0
                 else:
                     target = theta0
+                    if lp_blend is not None and atom_b not in neighbors[atom_a]:
+                        # Blend open<->compressed by how many substituents are
+                        # hydrogen: H-X-H fully compressed, C-X-C ~tetrahedral.
+                        open_r, comp_r = lp_blend
+                        n_h = (atomic_numbers[atom_a] == 1) + (
+                            atomic_numbers[atom_b] == 1
+                        )
+                        f_h = n_h / 2.0
+                        target = open_r - (open_r - comp_r) * f_h
                     if atom_b in neighbors[atom_a]:
                         # Three-membered ring: the hybridization-based angle
                         # would fight the three bond terms. Use the exact angle

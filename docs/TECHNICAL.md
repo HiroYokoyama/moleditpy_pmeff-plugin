@@ -104,7 +104,12 @@ Four special cases:
   congeners bond through near-pure p orbitals and collapse to a flat ~93°
   (H₂S 92°, PH₃ 94°, H₂Se 91°) — see `_sp3_lone_pair_angle`. Group 14 sp³
   centers, terminal group-17 atoms, and electron-deficient group-13 centers
-  are untouched.
+  are untouched. Because the compression is calibrated on the *hydrides*,
+  it is opened back up per angle by the fraction of hydrogen substituents
+  (`_sp3_lone_pair_blend`): bulky substituents relieve it sterically, so
+  H₂O stays 104.5° but dimethyl ether's C-O-C reverts to ~tetrahedral
+  (≈110°) and MeOH's C-O-H lands halfway (≈107°). Only period-2 centers
+  taper; heavier ones stay near-p³ regardless of substituent.
 
 - **Linear centers (θ₀ = π).** `d θ / d cos θ` diverges at θ = π, so linear
   targets use `E = k (1 + cos θ)` instead — identical curvature at 180° but a

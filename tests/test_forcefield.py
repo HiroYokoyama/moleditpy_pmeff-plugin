@@ -101,6 +101,38 @@ def test_ammonia_more_pyramidal_than_tetrahedral():
         assert math.degrees(theta0) == pytest.approx(106.97, abs=0.1)
 
 
+def test_sp3_lone_pair_opens_with_heavy_substituents():
+    # Lone-pair compression is calibrated on hydrides; heavier substituents
+    # relieve it, opening the angle back toward tetrahedral. Dimethyl ether's
+    # C-O-C should be ~109.5, not the 104.5 of water.
+    def center_angle(nums, bonds, hybs, center=0):
+        topo = ff.build_topology(nums, bonds, hybs)
+        for a, j, b, theta in topo.angles:
+            if j == center:
+                return math.degrees(theta)
+        raise AssertionError("no angle at center")
+
+    water = center_angle([8, 1, 1], [(0, 1), (0, 2)], ["SP3", None, None])
+    ether = center_angle(
+        [8, 6, 6], [(0, 1), (0, 2)], ["SP3", "SP3", "SP3"]
+    )
+    methanol = center_angle(
+        [8, 6, 1], [(0, 1), (0, 2)], ["SP3", "SP3", None]
+    )
+    assert water == pytest.approx(104.47, abs=0.1)      # H-O-H fully compressed
+    assert ether == pytest.approx(109.47, abs=0.1)      # C-O-C ~tetrahedral
+    assert methanol == pytest.approx(106.97, abs=0.1)   # C-O-H halfway
+
+
+def test_heavy_sp3_stays_flat_regardless_of_substituent():
+    # Period-3+ centers bond through near-pure p and do not open with heavy
+    # substituents: dimethyl sulfide keeps the flat ~93 deg target.
+    topo = ff.build_topology(
+        [16, 6, 6], [(0, 1), (0, 2)], ["SP3", "SP3", "SP3"]
+    )
+    assert math.degrees(topo.angles[0][3]) == pytest.approx(93.0, abs=0.1)
+
+
 def test_build_topology_deduplicates_bonds():
     topo = ff.build_topology([6, 6], [(0, 1), (1, 0)], None)
     assert len(topo.bonds) == 1
