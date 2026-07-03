@@ -46,8 +46,20 @@ Bump `PLUGIN_VERSION` in `pmeff_plugin/__init__.py`, then either:
 - **one click**: run the *Release* workflow from the Actions tab with the
   version as input (it creates and pushes the tag for you).
 
-The `release.yml` workflow verifies the tag matches `PLUGIN_VERSION`, builds
-the plugin zip + GitHub Release, then re-syncs and publishes `pmeff` to PyPI.
+The `release.yml` workflow then, in order:
+
+1. **release** — verifies the tag matches `PLUGIN_VERSION`, builds the plugin
+   zip, creates the GitHub Release, and notifies the `moleditpy-plugins`
+   registry.
+2. **pypi** — re-syncs the engine and publishes `pmeff` to PyPI.
+3. **sync-back** — re-runs the sync script on `main` and, if the committed
+   `pmeff/forcefield.py` / `pmeff/_version.py` don't already match the release
+   (e.g. the tag was cut without syncing locally first), commits the refreshed
+   copies back to `main` (`[skip ci]`, so it doesn't re-trigger). In the normal
+   case — where you synced before tagging — this no-ops.
+
+So `PLUGIN_VERSION` stays the single source of truth, and the repo's derived
+package files are kept in sync automatically at release time.
 
 ## Building / uploading locally
 
