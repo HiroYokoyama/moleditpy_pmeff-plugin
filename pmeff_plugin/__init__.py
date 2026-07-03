@@ -28,7 +28,7 @@ from pathlib import Path
 
 PLUGIN_NAME = "PMEFF Plugin"
 PLUGIN_VERSION = "1.0.0"
-PLUGIN_AUTHOR = "HiroYokoyama"
+PLUGIN_AUTHOR = "Hiromichi Yokoyama"
 PLUGIN_DESCRIPTION = (
     "PMEFF (Python Molecular Editor Force Field) — a self-contained universal "
     "force field covering the entire periodic table (Z=1..118). Adds a "

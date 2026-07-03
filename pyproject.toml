@@ -9,7 +9,7 @@ description = "PMEFF — a self-contained universal molecular force field (Z = 1
 readme = "README.md"
 requires-python = ">=3.9"
 license = { file = "LICENSE" }
-authors = [{ name = "Hiro Yokoyama" }]
+authors = [{ name = "Hiromichi Yokoyama" }]
 keywords = [
     "force field",
     "molecular mechanics",
@@ -21,7 +21,7 @@ keywords = [
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
     "Programming Language :: Python :: 3",
     "Topic :: Scientific/Engineering :: Chemistry",
     "Operating System :: OS Independent",
