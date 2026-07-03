@@ -18,7 +18,7 @@ import os
 import tempfile
 from pathlib import Path
 
-PLUGIN_NAME = "PMEFF Force Field"
+PLUGIN_NAME = "PMEFF Plugin"
 PLUGIN_VERSION = "0.1.0"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (

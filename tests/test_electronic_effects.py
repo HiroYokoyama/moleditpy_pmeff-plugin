@@ -14,8 +14,8 @@ import math
 import numpy as np
 import pytest
 
-import force_field_plugin as plugin
-from force_field_plugin import forcefield as ff
+import pmeff_plugin as plugin
+from pmeff_plugin import forcefield as ff
 from tests.conftest import make_context
 from tests.test_forcefield import _numeric_gradient
 
@@ -208,7 +208,7 @@ def test_optimizer_passes_electronic_effects_flag(settings_file, monkeypatch):
         return True, None
 
     monkeypatch.setattr(
-        "force_field_plugin.forcefield.optimize_rdkit_mol", fake_optimize
+        "pmeff_plugin.forcefield.optimize_rdkit_mol", fake_optimize
     )
     callback = ctx.register_optimization_method.call_args[0][1]
     assert callback(object()) is True

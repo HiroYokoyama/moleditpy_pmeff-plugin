@@ -1,6 +1,6 @@
-"""Shared test infrastructure for moleditpy_force-field.
+"""Shared test infrastructure for moleditpy_pmeff-plugin.
 
-The PMEFF engine (``force_field_plugin.forcefield``) uses real ``numpy`` and,
+The PMEFF engine (``pmeff_plugin.forcefield``) uses real ``numpy`` and,
 at its boundary, real ``rdkit`` — both are required to exercise the actual
 math and are available in the test environment. Only the heavy *host* imports
 (PyQt6, moleditpy) are mocked, and only for the plugin-entry (``__init__``)

@@ -66,7 +66,7 @@ force field:
 ### Electronic effects (optional)
 
 **PMEFF → Toggle Electronic Effects** switches two extra treatments
-(persisted in `force_field_plugin/settings.json`, **on by default**):
+(persisted in `pmeff_plugin/settings.json`, **on by default**):
 
 - **QEq partial charges + electrostatics** — still no lookup tables: Slater's
   rules give the effective nuclear charge from Z alone, Allred–Rochow combines
@@ -104,7 +104,7 @@ continuous as a pair crosses the boundary during optimization.
 
 ## Installation
 
-Copy the `force_field_plugin/` folder into your MoleditPy user plugin
+Copy the `pmeff_plugin/` folder into your MoleditPy user plugin
 directory:
 
 - **Windows:** `C:\Users\<YourName>\.moleditpy\plugins\`
@@ -119,13 +119,13 @@ Then restart MoleditPy, or use **Plugins → Reload All Plugins**.
 python -m pytest tests/ -v
 
 # With coverage
-python -m pytest tests/ --cov=force_field_plugin --cov-report=term-missing
+python -m pytest tests/ --cov=pmeff_plugin --cov-report=term-missing
 
 # Lint
-pylint force_field_plugin/
+pylint pmeff_plugin/
 ```
 
-The engine (`force_field_plugin/forcefield.py`) is deliberately Qt-free and
+The engine (`pmeff_plugin/forcefield.py`) is deliberately Qt-free and
 RDKit-free at its core — it operates on a plain-number `Topology` — which makes
 it fully unit-testable without a GUI. Only the thin boundary functions touch
 RDKit.

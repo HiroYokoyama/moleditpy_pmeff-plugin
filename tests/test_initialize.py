@@ -1,4 +1,4 @@
-"""Tests for the plugin entry point (force_field_plugin.__init__)."""
+"""Tests for the plugin entry point (pmeff_plugin.__init__)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-import force_field_plugin as plugin
+import pmeff_plugin as plugin
 from tests.conftest import make_context
 
 
@@ -18,7 +18,7 @@ def _embed(smiles: str) -> Chem.Mol:
 
 
 def test_metadata_present():
-    assert plugin.PLUGIN_NAME == "PMEFF Force Field"
+    assert plugin.PLUGIN_NAME == "PMEFF Plugin"
     assert plugin.PLUGIN_VERSION == "0.1.0"
     assert "numpy" in plugin.PLUGIN_DEPENDENCIES
     assert "rdkit" in plugin.PLUGIN_DEPENDENCIES
@@ -80,6 +80,6 @@ def test_optimizer_callback_survives_engine_exception(monkeypatch):
 
     monkeypatch.setattr(plugin, "_optimize", plugin._optimize)
     monkeypatch.setattr(
-        "force_field_plugin.forcefield.optimize_rdkit_mol", boom
+        "pmeff_plugin.forcefield.optimize_rdkit_mol", boom
     )
     assert callback(_embed("CCO")) is False

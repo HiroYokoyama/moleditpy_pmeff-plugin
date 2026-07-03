@@ -1,7 +1,7 @@
 # PMEFF Technical Reference
 
 The physics and numerics of the PMEFF engine
-(`force_field_plugin/forcefield.py`). The [README](../README.md) gives the
+(`pmeff_plugin/forcefield.py`). The [README](../README.md) gives the
 user-level overview; this document specifies the model precisely enough to
 reimplement it: every functional form, every parameter derivation, the
 gradient formulas, the non-bonded bookkeeping and the optimizer.

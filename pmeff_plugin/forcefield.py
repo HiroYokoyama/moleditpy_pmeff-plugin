@@ -422,6 +422,61 @@ def _torsion_params(
     return None
 
 
+# Half-shell of neighbor-cell offsets for the cell-list pair search: the home
+# cell plus the 13 lexicographically positive offsets, so every unordered pair
+# of neighboring cells is scanned exactly once.
+_HALF_SHELL: Tuple[Tuple[int, int, int], ...] = ((0, 0, 0),) + tuple(
+    (dx, dy, dz)
+    for dx in (-1, 0, 1)
+    for dy in (-1, 0, 1)
+    for dz in (-1, 0, 1)
+    if (dx, dy, dz) > (0, 0, 0)
+)
+
+
+def _pairs_within(coords: np.ndarray, cutoff: float) -> List[Tuple[int, int]]:
+    """Return every (i, j) pair (i < j) within *cutoff*, via cell lists.
+
+    Atoms are binned into a grid of cutoff-sized cells and only the half-shell
+    of neighboring cells is scanned, so for bounded density the cost is O(N)
+    instead of the O(N^2) of an all-pairs distance check. The result is
+    sorted, and identical to the brute-force pair list.
+    """
+    coords = np.asarray(coords, dtype=float)
+    n = len(coords)
+    if n < 2:
+        return []
+    cells: Dict[Tuple[int, int, int], List[int]] = {}
+    for idx, key in enumerate(map(tuple, np.floor(coords / cutoff).astype(int))):
+        cells.setdefault(key, []).append(idx)
+    cutoff_sq = cutoff * cutoff
+    pairs: List[Tuple[int, int]] = []
+    for key, members in cells.items():
+        home = np.array(members)
+        for off in _HALF_SHELL:
+            if off == (0, 0, 0):
+                ia, ib = np.triu_indices(len(home), k=1)
+                aa, bb = home[ia], home[ib]
+            else:
+                other = cells.get(
+                    (key[0] + off[0], key[1] + off[1], key[2] + off[2])
+                )
+                if other is None:
+                    continue
+                aa = np.repeat(home, len(other))
+                bb = np.tile(np.array(other), len(home))
+            if not len(aa):
+                continue
+            d = coords[aa] - coords[bb]
+            close = np.einsum("ij,ij->i", d, d) <= cutoff_sq
+            pairs.extend(
+                (int(a), int(b)) if a < b else (int(b), int(a))
+                for a, b in zip(aa[close], bb[close])
+            )
+    pairs.sort()
+    return pairs
+
+
 def _vdw_pair(
     atomic_numbers: Sequence[int], i: int, j: int, is14: bool
 ) -> Tuple[int, int, float, float]:

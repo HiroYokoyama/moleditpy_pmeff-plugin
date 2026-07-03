@@ -218,4 +218,4 @@ __marimo__/
 .streamlit/secrets.toml
 
 # PMEFF runtime options (user state, not source)
-force_field_plugin/settings.json
+pmeff_plugin/settings.json

@@ -7,7 +7,7 @@ import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from force_field_plugin import forcefield as ff
+from pmeff_plugin import forcefield as ff
 
 
 def _embed(smiles: str) -> Chem.Mol:
