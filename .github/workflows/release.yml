@@ -15,9 +15,11 @@ on:
       version:
         description: 'Release version (e.g. 1.0.0 — without leading v)'
         required: true
-  push:
-    tags:
-      - 'v*.*.*'
+  # Tag-push trigger temporarily disabled while tagging v1.0.0 by hand
+  # (PyPI trusted publisher not yet configured). Re-enabled immediately after.
+  # push:
+  #   tags:
+  #     - 'v*.*.*'
 
 jobs:
   release:
