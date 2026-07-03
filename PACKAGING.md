@@ -51,7 +51,10 @@ The `release.yml` workflow then, in order:
 1. **release** — verifies the tag matches `PLUGIN_VERSION`, builds the plugin
    zip, creates the GitHub Release, and notifies the `moleditpy-plugins`
    registry.
-2. **pypi** — re-syncs the engine and publishes `pmeff` to PyPI.
+2. **pypi** — re-syncs the engine, builds the sdist + wheel, attaches them to
+   the GitHub Release, and publishes `pmeff` to PyPI. (The binaries are
+   attached before the PyPI step, so they land on the release even if the
+   PyPI upload fails.)
 3. **sync-back** — re-runs the sync script on `main` and, if the committed
    `pmeff/forcefield.py` / `pmeff/_version.py` don't already match the release
    (e.g. the tag was cut without syncing locally first), commits the refreshed

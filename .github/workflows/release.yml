@@ -98,6 +98,8 @@ jobs:
       # PyPI "pending publisher" for project `pmeff` pointing at this repo,
       # workflow `release.yml`, environment `pypi` before the first release.
       id-token: write
+      # Needed to attach the built sdist/wheel to the GitHub Release.
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -105,6 +107,15 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Resolve version
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
       - name: Sync the force field engine into the pmeff package
         run: python scripts/sync_forcefield.py
@@ -116,11 +127,17 @@ jobs:
 
       - name: Verify the built version matches the tag
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
           ls dist/
           test -f "dist/pmeff-${VERSION}.tar.gz" || {
             echo "ERROR: expected dist/pmeff-${VERSION}.tar.gz not found"; exit 1;
           }
+
+      - name: Attach sdist and wheel to the GitHub Release
+        # Done before publishing so the binaries reach the release even if the
+        # PyPI upload step fails (e.g. trusted publisher not yet configured).
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "v${VERSION}" dist/*.whl dist/*.tar.gz --clobber
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
