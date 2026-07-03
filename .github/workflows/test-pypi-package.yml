@@ -1,0 +1,68 @@
+name: Test PyPI package
+
+# Manually triggered check that the *published* `pmeff` distribution installs
+# cleanly from PyPI and works — the real wheel, not the repo source tree.
+# Run it from the Actions tab; pick the version and whether to pull the
+# optional RDKit extra.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'pmeff version to install (blank = latest on PyPI)'
+        required: false
+        default: ''
+      extras:
+        description: 'Install variant'
+        type: choice
+        options:
+          - core
+          - rdkit
+        default: rdkit
+
+jobs:
+  test-installed:
+    name: pmeff (${{ inputs.extras }}) on py${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Resolve install spec
+        run: |
+          PKG="pmeff"
+          if [ "${{ inputs.extras }}" = "rdkit" ]; then
+            PKG="pmeff[rdkit]"
+          fi
+          if [ -n "${{ inputs.version }}" ]; then
+            PKG="${PKG}==${{ inputs.version }}"
+          fi
+          echo "SPEC=$PKG" >> "$GITHUB_ENV"
+          echo "Install spec: $PKG"
+
+      - name: Install pmeff from PyPI
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "$SPEC"
+
+      - name: Show installed package
+        run: |
+          pip show pmeff
+          python -c "import pmeff, os; print('imported from', os.path.abspath(pmeff.__file__)); print('version', pmeff.__version__)"
+
+      - name: Smoke-test the installed package
+        # Run from a temp dir so `import pmeff` cannot pick up the repo's local
+        # pmeff/ folder — the installed wheel is what's under test.
+        run: |
+          cp scripts/smoke_test_installed.py "$RUNNER_TEMP/"
+          cd "$RUNNER_TEMP"
+          python smoke_test_installed.py --extras "${{ inputs.extras }}"
