@@ -89,6 +89,9 @@ def initialize(context):
     context.add_analysis_tool(
         "PMEFF Single-Point Energy", lambda: _show_energy(context)
     )
+    context.add_analysis_tool(
+        "PMEFF Minimum Check (Vibrational)", lambda: _check_minimum(context)
+    )
     context.add_menu_action(
         "PMEFF",
         lambda: _toggle_electronic_effects(context),
@@ -172,6 +175,46 @@ def _show_energy(context) -> None:
         f"vdW {comp['vdw']:.2f}, elec {comp['elec']:.2f})",
         8000,
     )
+
+
+def _check_minimum(context) -> None:
+    """Report whether the current geometry is a true PMEFF minimum."""
+    from .forcefield import check_minimum
+
+    mol = context.current_molecule
+    if mol is None:
+        _status(context, "PMEFF: no molecule loaded.", 3000)
+        return
+
+    try:
+        result = check_minimum(
+            mol, electronic_effects=electronic_effects_enabled()
+        )
+    except Exception as exc:  # pragma: no cover - defensive GUI guard
+        logger.exception("PMEFF vibrational analysis failed")
+        _status(context, f"PMEFF vibrational analysis failed: {exc}", 5000)
+        return
+
+    if result is None:
+        _status(context, "PMEFF: molecule has no 3D coordinates.", 4000)
+        return
+
+    if result["is_minimum"]:
+        _status(
+            context,
+            "PMEFF vibrational check: true minimum "
+            f"({result['num_zero']} rigid-body modes, 0 imaginary).",
+            8000,
+        )
+    else:
+        lowest = float(result["frequencies"][0])
+        _status(
+            context,
+            f"PMEFF vibrational check: NOT a minimum — "
+            f"{result['num_imaginary']} imaginary mode(s), lowest "
+            f"{lowest:.3f}. Re-optimize from a perturbed geometry.",
+            8000,
+        )
 
 
 def _status(context, message: str, timeout: int = 3000) -> None:

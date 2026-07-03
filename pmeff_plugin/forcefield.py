@@ -1037,6 +1037,59 @@ def energy_components(coords: np.ndarray, topo: Topology) -> Dict[str, float]:
     return comp
 
 
+def hessian(
+    coords: np.ndarray, topo: Topology, step: float = 1e-4
+) -> np.ndarray:
+    """Return the (3N, 3N) Hessian at *coords* under *topo*.
+
+    Central finite differences of the *analytical* gradient (2 gradient
+    evaluations per coordinate, 6N total), then symmetrized. With unit
+    masses this is also the dynamical matrix.
+    """
+    coords = np.asarray(coords, dtype=float)
+    flat = coords.ravel()
+    n3 = flat.size
+    hess = np.zeros((n3, n3))
+    for a in range(n3):
+        up = flat.copy()
+        up[a] += step
+        down = flat.copy()
+        down[a] -= step
+        _, g_up = energy_and_gradient(up.reshape(coords.shape), topo)
+        _, g_down = energy_and_gradient(down.reshape(coords.shape), topo)
+        hess[a] = (g_up - g_down).ravel() / (2.0 * step)
+    return 0.5 * (hess + hess.T)
+
+
+def vibrational_analysis(
+    coords: np.ndarray, topo: Topology, zero_tol: float = 1e-2
+) -> Dict[str, Any]:
+    """Unit-mass normal-mode analysis of *coords* under *topo*.
+
+    Diagonalizes the Hessian and classifies the eigenvalues: near-zero modes
+    (|lambda| <= *zero_tol*) are the rigid-body translations/rotations (6 for
+    a nonlinear molecule, 5 for a linear one, plus any genuinely soft modes),
+    negative modes are imaginary frequencies — descent directions the
+    optimizer converged *onto* rather than away from (a saddle point).
+
+    Returns a dict with:
+        ``frequencies`` — signed sqrt of the eigenvalues, ascending, in
+        internal (unit-mass) units, **not** cm^-1; negative values mark
+        imaginary modes.
+        ``num_imaginary`` — count of eigenvalues below -*zero_tol*.
+        ``num_zero`` — count of |eigenvalue| <= *zero_tol* (rigid body).
+        ``is_minimum`` — True when no imaginary modes are present.
+    """
+    eigvals = np.linalg.eigvalsh(hessian(coords, topo))
+    freqs = np.sign(eigvals) * np.sqrt(np.abs(eigvals))
+    return {
+        "frequencies": freqs,
+        "num_imaginary": int(np.sum(eigvals < -zero_tol)),
+        "num_zero": int(np.sum(np.abs(eigvals) <= zero_tol)),
+        "is_minimum": bool(np.all(eigvals >= -zero_tol)),
+    }
+
+
 @dataclass
 class OptimizeResult:
     """Outcome of a :func:`optimize` run."""
@@ -1418,6 +1471,23 @@ def compute_energy_components(
         return None
     topo = topology_from_rdkit(mol, electronic_effects=electronic_effects)
     return energy_components(coords, topo)
+
+
+def check_minimum(
+    mol: Any, electronic_effects: bool = False
+) -> Optional[Dict[str, Any]]:
+    """Run a vibrational analysis on *mol*'s current conformer.
+
+    Returns the :func:`vibrational_analysis` dict, or None when the molecule
+    has no conformer. Lets the user verify that an optimized structure is a
+    true minimum rather than a saddle point (e.g. a symmetric geometry the
+    optimizer could not break out of).
+    """
+    coords = _conformer_coords(mol)
+    if coords is None:
+        return None
+    topo = topology_from_rdkit(mol, electronic_effects=electronic_effects)
+    return vibrational_analysis(coords, topo)
 
 
 def optimize_rdkit_mol(

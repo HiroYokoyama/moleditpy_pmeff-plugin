@@ -542,6 +542,84 @@ def test_energy_minimum_at_rest_length():
     assert e_rest == pytest.approx(0.0, abs=1e-9)
 
 
+# --- Hessian & vibrational analysis ------------------------------------------
+
+
+def test_hessian_diatomic_stretch_eigenvalue():
+    # Two bonded atoms at rest length: 5 rigid-body modes (3 translations,
+    # 2 rotations of a linear body) and one stretch mode. With unit masses
+    # the stretch eigenvalue is 2k (reduced mass 1/2).
+    topo = ff.build_topology([6, 6], [(0, 1)], None)
+    r0 = topo.bonds[0][2]
+    coords = np.array([[0.0, 0.0, 0.0], [r0, 0.0, 0.0]])
+    hess = ff.hessian(coords, topo)
+    assert np.allclose(hess, hess.T)
+    eigvals = np.sort(np.linalg.eigvalsh(hess))
+    assert np.allclose(eigvals[:5], 0.0, atol=1e-4)
+    assert eigvals[5] == pytest.approx(2.0 * ff._K_BOND, rel=1e-4)
+
+
+def test_vibrational_analysis_confirms_water_minimum():
+    topo = ff.build_topology([8, 1, 1], [(0, 1), (0, 2)], ["SP3", None, None])
+    coords = np.array(
+        [[0.0, 0.0, 0.0], [0.9, 0.4, 0.0], [-0.7, 0.6, 0.1]]
+    )
+    out, result = ff.optimize(coords, topo, max_iter=500, f_tol=1e-8)
+    assert result.converged
+    analysis = ff.vibrational_analysis(out, topo)
+    assert analysis["is_minimum"]
+    assert analysis["num_imaginary"] == 0
+    assert analysis["num_zero"] == 6      # nonlinear: 3 trans + 3 rot
+    assert np.all(analysis["frequencies"][6:] > 0.0)
+
+
+def _rotated_about_axis(points, origin, axis, angle):
+    axis = axis / np.linalg.norm(axis)
+    c, s = math.cos(angle), math.sin(angle)
+    out = []
+    for p in points:
+        v = p - origin
+        out.append(
+            origin
+            + v * c
+            + np.cross(axis, v) * s
+            + axis * float(np.dot(axis, v)) * (1.0 - c)
+        )
+    return np.array(out)
+
+
+def test_vibrational_analysis_detects_eclipsed_saddle():
+    # Optimize staggered ethane tightly, then rotate one methyl by exactly
+    # 60 degrees about the C-C axis: bond lengths and bend angles are
+    # untouched, but the torsion sits at the top of its barrier — a saddle
+    # point the analysis must flag as imaginary.
+    topo = _ethane_topology()
+    coords = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.54, 0.0, 0.0],
+            [-0.4, 1.0, 0.0],
+            [-0.4, -0.5, 0.9],
+            [-0.4, -0.5, -0.9],
+            [1.94, 1.0, 0.1],
+            [1.94, -0.5, 0.9],
+            [1.94, -0.5, -0.9],
+        ]
+    )
+    out, result = ff.optimize(coords, topo, max_iter=500, f_tol=1e-8)
+    assert result.converged
+    assert ff.vibrational_analysis(out, topo)["is_minimum"]
+
+    eclipsed = out.copy()
+    eclipsed[5:] = _rotated_about_axis(
+        out[5:], out[1], out[1] - out[0], math.pi / 3.0
+    )
+    analysis = ff.vibrational_analysis(eclipsed, topo)
+    assert not analysis["is_minimum"]
+    assert analysis["num_imaginary"] >= 1
+    assert analysis["frequencies"][0] < 0.0
+
+
 # --- Optimizer --------------------------------------------------------------
 
 
