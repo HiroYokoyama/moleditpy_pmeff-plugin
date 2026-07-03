@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from unittest.mock import MagicMock
 
 from rdkit import Chem
@@ -19,7 +20,8 @@ def _embed(smiles: str) -> Chem.Mol:
 
 def test_metadata_present():
     assert plugin.PLUGIN_NAME == "PMEFF Plugin"
-    assert plugin.PLUGIN_VERSION == "0.1.0"
+    # Shape only, not a pinned literal: version bumps must not break tests.
+    assert re.fullmatch(r"\d+\.\d+\.\d+", plugin.PLUGIN_VERSION)
     assert "numpy" in plugin.PLUGIN_DEPENDENCIES
     assert "rdkit" in plugin.PLUGIN_DEPENDENCIES
 
@@ -38,6 +40,13 @@ def test_initialize_registers_method_and_tools():
         "PMEFF Single-Point Energy",
         "PMEFF Minimum Check (Vibrational)",
     }
+
+
+def test_settings_toggle_lives_under_setting_menu():
+    ctx = make_context()
+    plugin.initialize(ctx)
+    ctx.add_menu_action.assert_called_once()
+    assert ctx.add_menu_action.call_args[0][0] == "Setting/PMEFF Setting"
 
 
 def test_registered_optimizer_callback_runs():
