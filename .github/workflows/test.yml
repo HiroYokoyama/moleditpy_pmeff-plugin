@@ -26,7 +26,7 @@ jobs:
         run: pip install pytest pytest-cov numpy rdkit pylint
 
       - name: Run tests
-        run: python -m pytest tests/ -v --cov=force_field_plugin --cov-report=term-missing
+        run: python -m pytest tests/ -v --cov=pmeff_plugin --cov-report=term-missing
 
       - name: Lint
-        run: pylint force_field_plugin/ --fail-under=9.0
+        run: pylint pmeff_plugin/ --fail-under=9.0
