@@ -234,18 +234,27 @@ def test_electronic_effects_default_on(settings_file):
     assert plugin.electronic_effects_enabled() is True
 
 
-def test_toggle_writes_settings_json(settings_file):
+def test_save_load_roundtrip_all_settings_keys(settings_file):
+    # save_settings / load_settings must persist and restore all known keys.
+    expected = {
+        "electronic_effects": False,
+        "morse_bonds": False,
+        "hbond": False,
+        "dispersion": True,
+    }
+    plugin.save_settings(expected)
+    loaded = plugin.load_settings()
+    for key, val in expected.items():
+        assert loaded[key] is val, f"mismatch for key {key!r}"
+    assert json.loads(settings_file.read_text())["electronic_effects"] is False
+
+
+def test_settings_menu_action_registered(settings_file):
     ctx = make_context()
     plugin.initialize(ctx)
     ctx.add_menu_action.assert_called_once()
-    toggle = ctx.add_menu_action.call_args[0][1]
-
-    toggle()  # default on -> off
-    assert plugin.electronic_effects_enabled() is False
-    assert json.loads(settings_file.read_text())["electronic_effects"] is False
-
-    toggle()  # off -> on
-    assert plugin.electronic_effects_enabled() is True
+    path = ctx.add_menu_action.call_args[0][0]
+    assert path == "Settings/PMEFF Setting"
 
 
 def test_corrupt_settings_file_falls_back_to_defaults(settings_file):
@@ -260,8 +269,8 @@ def test_optimizer_passes_electronic_effects_flag(settings_file, monkeypatch):
 
     seen = {}
 
-    def fake_optimize(mol, max_iter, electronic_effects):
-        seen["electronic_effects"] = electronic_effects
+    def fake_optimize(mol, max_iter, **kwargs):
+        seen.update(kwargs)
         return True, None
 
     monkeypatch.setattr(
@@ -270,3 +279,6 @@ def test_optimizer_passes_electronic_effects_flag(settings_file, monkeypatch):
     callback = ctx.register_optimization_method.call_args[0][1]
     assert callback(object()) is True
     assert seen["electronic_effects"] is True
+    assert "use_morse" in seen
+    assert "use_hbond" in seen
+    assert "use_dispersion" in seen

@@ -512,7 +512,8 @@ def test_energy_components_decompose_the_total():
     )  # stretched bonds, squeezed angle
     comp = ff.energy_components(coords, topo)
     assert set(comp) == {
-        "bond", "angle", "torsion", "oop", "vdw", "elec", "total"
+        "bond", "angle", "torsion", "oop", "vdw", "elec",
+        "hbond", "disp", "total",
     }
     total, _ = ff.energy_and_gradient(coords, topo)
     parts = sum(v for k, v in comp.items() if k != "total")
@@ -838,3 +839,170 @@ def test_square_planar_pd_relaxes_from_near_tetrahedral():
     centered = out - out.mean(axis=0)
     sv = np.linalg.svd(centered, compute_uv=False)
     assert sv[-1] < 0.15  # all atoms within 0.15 A of the best-fit plane
+
+
+# --- Morse bonds -----------------------------------------------------------
+
+
+def test_morse_bond_matches_harmonic_at_minimum():
+    # At r = r0, both potentials must give zero energy and the same curvature.
+    topo_h = ff.build_topology([6, 6], [(0, 1)], use_morse=False)
+    topo_m = ff.build_topology([6, 6], [(0, 1)], use_morse=True)
+    r0 = topo_h.bonds[0][2]  # C-C rest length
+    coords0 = np.array([[0.0, 0.0, 0.0], [r0, 0.0, 0.0]])
+    e_h, g_h = ff.energy_and_gradient(coords0, topo_h)
+    e_m, g_m = ff.energy_and_gradient(coords0, topo_m)
+    assert e_h == pytest.approx(e_m, abs=1e-8)
+    assert np.allclose(g_h, g_m, atol=1e-8)
+
+
+def test_morse_bond_softer_at_large_stretch():
+    # The Morse well is bounded: at 0.5 Å stretch Morse energy < harmonic.
+    topo_h = ff.build_topology([6, 6], [(0, 1)], use_morse=False)
+    topo_m = ff.build_topology([6, 6], [(0, 1)], use_morse=True)
+    r0 = topo_h.bonds[0][2]
+    coords_stretched = np.array([[0.0, 0.0, 0.0], [r0 + 0.5, 0.0, 0.0]])
+    e_h, _ = ff.energy_and_gradient(coords_stretched, topo_h)
+    e_m, _ = ff.energy_and_gradient(coords_stretched, topo_m)
+    assert e_m < e_h  # Morse is softer (less penalty) at large extension
+
+
+def test_morse_bond_gradient_matches_numeric():
+    topo = ff.build_topology([6, 6], [(0, 1)], use_morse=True)
+    r0 = topo.bonds[0][2]
+    coords = np.array([[0.0, 0.0, 0.0], [r0 + 0.15, 0.0, 0.0]])
+    _, g_ana = ff.energy_and_gradient(coords, topo)
+    step = 1e-5
+    g_num = np.zeros_like(coords)
+    for idx in range(coords.size):
+        cp, cm = coords.copy(), coords.copy()
+        cp.flat[idx] += step
+        cm.flat[idx] -= step
+        ep, _ = ff.energy_and_gradient(cp, topo)
+        em, _ = ff.energy_and_gradient(cm, topo)
+        g_num.flat[idx] = (ep - em) / (2 * step)
+    assert np.allclose(g_ana, g_num, atol=1e-5)
+
+
+# --- H-bond term -----------------------------------------------------------
+
+
+def test_hbond_triplets_detected_for_water_dimer():
+    # O-H...O arrangement: donor O at (-1,0,0), H at origin, near acceptor O at
+    # (2,0,0) [r=2.0 A < 4.5 A cutoff], and a far O at (6,0,0) [r=6 A > cutoff].
+    coords = np.array([
+        [-1.0, 0.0, 0.0],  # O_donor  (0)
+        [0.0,  0.0, 0.0],  # H        (1)
+        [2.0,  0.0, 0.0],  # O_accept (2)  r_HA = 2.0 A  (included)
+        [6.0,  0.0, 0.0],  # O far    (3)  r_HA = 6.0 A  (excluded)
+    ])
+    topo = ff.build_topology(
+        [8, 1, 8, 8], [(0, 1)],
+        coords=coords, use_hbond=True,
+    )
+    dhas = [(d, h, a) for d, h, a, *_ in topo.hbond_triplets]
+    assert (0, 1, 2) in dhas
+    assert (0, 1, 3) not in dhas
+
+
+def test_hbond_energy_lower_at_linear_geometry():
+    # Linear D-H...A gives lower energy than bent (cos² factor).
+    coords_lin = np.array([
+        [-1.0, 0.0, 0.0],   # O_donor
+        [0.0,  0.0, 0.0],   # H
+        [2.0,  0.0, 0.0],   # O_acceptor (linear)
+    ])
+    coords_bent = np.array([
+        [-1.0, 0.0,  0.0],
+        [0.0,  0.0,  0.0],
+        [1.0,  1.7,  0.0],  # acceptor at ~120° D-H-A
+    ])
+    topo = ff.build_topology(
+        [8, 1, 8], [(0, 1)],
+        coords=coords_lin, use_hbond=True,
+    )
+    e_lin, _ = ff.energy_and_gradient(coords_lin, topo)
+    e_bent, _ = ff.energy_and_gradient(coords_bent, topo)
+    assert e_lin < e_bent  # linear is more favorable
+
+
+def test_hbond_gradient_matches_numeric():
+    coords = np.array([
+        [-1.0, 0.0, 0.0],
+        [0.0,  0.0, 0.0],
+        [2.1,  0.0, 0.0],
+    ])
+    topo = ff.build_topology(
+        [7, 1, 8], [(0, 1)],
+        coords=coords, use_hbond=True,
+    )
+    _, g_ana = ff.energy_and_gradient(coords, topo)
+    step = 1e-5
+    g_num = np.zeros_like(coords)
+    for idx in range(coords.size):
+        cp, cm = coords.copy(), coords.copy()
+        cp.flat[idx] += step
+        cm.flat[idx] -= step
+        ep, _ = ff.energy_and_gradient(cp, topo)
+        em, _ = ff.energy_and_gradient(cm, topo)
+        g_num.flat[idx] = (ep - em) / (2 * step)
+    assert np.allclose(g_ana, g_num, atol=1e-5)
+
+
+# --- Dispersion correction -------------------------------------------------
+
+
+def test_dispersion_deepens_vdw_well():
+    # At the LJ minimum the dispersion correction must lower the energy.
+    coords = np.array([[0.0, 0.0, 0.0], [3.3, 0.0, 0.0]])  # ~C-C rmin
+    topo_plain = ff.build_topology([6, 6], [], use_dispersion=False)
+    topo_disp = ff.build_topology(
+        [6, 6], [], coords=coords, vdw_cutoff=ff._VDW_CUTOFF_A,
+        use_dispersion=True,
+    )
+    e_plain, _ = ff.energy_and_gradient(coords, topo_plain)
+    e_disp, _ = ff.energy_and_gradient(coords, topo_disp)
+    assert e_disp < e_plain  # dispersion deepens the well
+
+
+def test_dispersion_gradient_matches_numeric():
+    coords = np.array([[0.0, 0.0, 0.0], [4.0, 0.0, 0.0]])
+    topo = ff.build_topology(
+        [6, 6], [], coords=coords, vdw_cutoff=ff._VDW_CUTOFF_A,
+        use_dispersion=True,
+    )
+    _, g_ana = ff.energy_and_gradient(coords, topo)
+    step = 1e-5
+    g_num = np.zeros_like(coords)
+    for idx in range(coords.size):
+        cp, cm = coords.copy(), coords.copy()
+        cp.flat[idx] += step
+        cm.flat[idx] -= step
+        ep, _ = ff.energy_and_gradient(cp, topo)
+        em, _ = ff.energy_and_gradient(cm, topo)
+        g_num.flat[idx] = (ep - em) / (2 * step)
+    assert np.allclose(g_ana, g_num, atol=1e-6)
+
+
+# --- Octahedral geometry ---------------------------------------------------
+
+
+def test_octahedral_angle_targets_assigned_from_coordinates():
+    # Perfect octahedron: 3 trans (π) and 12 cis (π/2) pairs.
+    d = 2.1
+    coords = np.array([
+        [0, 0, 0],
+        [d, 0, 0], [-d, 0, 0],   # trans pair 1
+        [0, d, 0], [0, -d, 0],   # trans pair 2
+        [0, 0, d], [0, 0, -d],   # trans pair 3
+    ], dtype=float)
+    # Use Cr (Z=24) — a typical octahedral d-block metal.
+    topo = ff.build_topology(
+        [24, 17, 17, 17, 17, 17, 17],
+        [(0, 1), (0, 2), (0, 3), (0, 4), (0, 5), (0, 6)],
+        square_planar_metals=True,
+        coords=coords,
+    )
+    targets = [t for _, _, _, t in topo.angles]
+    assert targets.count(math.pi) == 3
+    assert targets.count(math.pi / 2) == 12

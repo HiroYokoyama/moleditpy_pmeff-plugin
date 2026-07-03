@@ -157,6 +157,38 @@ _CHI_HYB_SCALE: Dict[str, float] = {"SP": 1.08, "SP2": 1.04}
 # nearest of the two ideal vertex angles (90 or 180 degrees) at runtime.
 _SQ_PLANAR_T0 = -1.0
 
+# Octahedral metals: all d-block transition metals (Z=21..30, 39..48, 57..80).
+# 6-coordinate centers in this set get coordinate-based trans/cis angle targets
+# (3 trans at π, 12 cis at π/2) rather than the flat 90° coordination default.
+_OCTAHEDRAL_METALS = (
+    frozenset(range(21, 31)) | frozenset(range(39, 49)) | frozenset(range(57, 81))
+)
+
+# Morse bond potential: V = D(1 − e^{−α(r−r₀)})²
+# D = _MORSE_DEPTH_FACTOR * k * r₀  →  α = sqrt(k / 2D)
+# Curvature at r₀ equals the harmonic (k = 2Dα²); energy is bounded above
+# at D rather than growing without limit, improving robustness at large
+# distortions. The factor 0.08 gives D ≈ 84 kcal/mol for a C-C single bond
+# (k=700 kcal/mol/Å², r₀=1.50 Å), matching the experimental bond energy.
+_MORSE_DEPTH_FACTOR = 0.08
+
+# H-bond correction: D−H···A geometry-dependent attraction.
+# Energy: eps * [(R₀/r)^12 − 2(R₀/r)^6] * cos²(θ_{DHA})
+# where r = H···A distance, θ_{DHA} = angle at H.
+_HBOND_DONORS = frozenset({7, 8, 9, 16})     # N  O  F  S as donors
+_HBOND_ACCEPTORS = frozenset({7, 8, 9, 16})  # N  O  F  S as acceptors
+_HBOND_CUTOFF_A = 4.5   # max H···A distance included in the triplet list (Å)
+_HBOND_R0_A = 2.0       # equilibrium H···A distance (Å)
+_HBOND_EPS = 3.0        # well depth at ideal (linear, r=R₀) H-bond (energy units)
+
+# Dispersion correction: Becke-Johnson damped C₆/r⁶ added on top of the LJ.
+# V_disp = −c₆ / (r⁶ + r₀⁶), where c₆ = _DISP_S6 · 2 · ε_LJ · rmin⁶
+# and r₀ = rmin (BJ damping length = LJ equilibrium radius).
+# At r = rmin this deepens the well by _DISP_S6 · ε; for r → ∞ it recovers
+# the correct −C₆ / r⁶ London asymptotics. 15% extra is a light correction
+# that improves aromatic stacking distances without over-binding.
+_DISP_S6 = 0.15
+
 # Aufbau filling order as (n, l, capacity), for Slater's rules.
 _AUFBAU: Tuple[Tuple[int, int, int], ...] = (
     (1, 0, 2), (2, 0, 2), (2, 1, 6), (3, 0, 2), (3, 1, 6), (4, 0, 2),
@@ -364,6 +396,15 @@ class Topology:
     # hybridization scaling applied at build time is re-applied on each
     # charge re-solve so the charges stay consistent. None = no scaling.
     hybridizations: Optional[List] = None
+    # When True, bonds use the Morse potential D(1−e^{−α Δr})² instead of
+    # the harmonic ½k Δr². Same curvature at the minimum; bounded above.
+    use_morse: bool = False
+    # H-bond triplets: (donor, H, acceptor, eps, r₀). Built when use_hbond=True
+    # and coords are available. Empty list = H-bond term inactive.
+    hbond_triplets: List[Tuple] = field(default_factory=list)
+    # Dispersion pairs: (i, j, c₆, r₀⁶). Rebuilt alongside the Verlet LJ
+    # list (same pair set, different coefficients). Empty = inactive.
+    disp_pairs: List[Tuple] = field(default_factory=list)
 
     @property
     def num_atoms(self) -> int:
@@ -383,6 +424,8 @@ class Topology:
             len(self.oops),
             len(self.vdw_pairs),
             len(self.elec_pairs),
+            len(self.hbond_triplets),
+            len(self.disp_pairs),
         )
         cache = getattr(self, "_compiled_cache", None)
         if cache is not None and cache[0] == key:
@@ -394,6 +437,16 @@ class Topology:
         oops = np.array(self.oops, dtype=int).reshape(-1, 4)
         vdw = np.array(self.vdw_pairs, dtype=float).reshape(-1, 4)
         elec = np.array(self.elec_pairs, dtype=float).reshape(-1, 4)
+        hbond = (
+            np.array(self.hbond_triplets, dtype=float).reshape(-1, 5)
+            if self.hbond_triplets
+            else np.zeros((0, 5))
+        )
+        disp = (
+            np.array(self.disp_pairs, dtype=float).reshape(-1, 4)
+            if self.disp_pairs
+            else np.zeros((0, 4))
+        )
         arrays: Dict[str, np.ndarray] = {
             "bond_ij": bonds[:, :2].astype(int),
             "bond_r0": bonds[:, 2],
@@ -411,6 +464,12 @@ class Topology:
             "elec_ij": elec[:, :2].astype(int),
             "elec_kqq": elec[:, 2],
             "elec_gamma": elec[:, 3],
+            "hbond_dha": hbond[:, :3].astype(int),
+            "hbond_eps": hbond[:, 3],
+            "hbond_r0": hbond[:, 4],
+            "disp_ij": disp[:, :2].astype(int),
+            "disp_c6": disp[:, 2],
+            "disp_r0_6": disp[:, 3],
         }
         self._compiled_cache = (key, arrays)  # type: ignore[attr-defined]
         return arrays
@@ -523,6 +582,19 @@ def _vdw_pair(
     return (i, j, rmin, eps)
 
 
+def _disp_pair(
+    i: int, j: int, rmin: float, eps: float
+) -> Tuple[int, int, float, float]:
+    """Return (i, j, c₆, r₀⁶) for one BJ-damped dispersion pair.
+
+    c₆ = _DISP_S6 · 2 · ε · rmin⁶  (matches the LJ r⁻⁶ C₆ coefficient,
+    scaled by _DISP_S6 so the correction is a fraction of the LJ well).
+    r₀⁶ = rmin⁶  (BJ damping radius equals the LJ equilibrium separation).
+    """
+    r0_6 = rmin ** 6
+    return (i, j, _DISP_S6 * 2.0 * eps * r0_6, r0_6)
+
+
 def _elec_pair_list(
     atomic_numbers: Sequence[int],
     charges: Sequence[float],
@@ -571,6 +643,12 @@ def refresh_vdw_pairs(topo: Topology, coords: np.ndarray) -> None:
         for i, j in _pairs_within(coords, topo.vdw_cutoff + _VDW_SKIN_A)
         if (i, j) not in topo.excluded_pairs
     ]
+    # Rebuild dispersion pairs from the refreshed LJ list when active.
+    if topo.disp_pairs:
+        topo.disp_pairs = [
+            _disp_pair(i, j, rmin, eps)
+            for i, j, rmin, eps in topo.vdw_pairs
+        ]
     # The compiled-array cache is keyed on term-list lengths only; a refresh
     # can swap pairs without changing the count, so drop it explicitly.
     topo._compiled_cache = None  # pylint: disable=protected-access
@@ -609,6 +687,9 @@ def build_topology(
     square_planar_metals: bool = False,
     coords: Optional[np.ndarray] = None,
     vdw_cutoff: Optional[float] = None,
+    use_morse: bool = False,
+    use_dispersion: bool = False,
+    use_hbond: bool = False,
 ) -> Topology:
     """Assemble a :class:`Topology` from connectivity alone.
 
@@ -626,14 +707,22 @@ def build_topology(
         charges: Optional per-atom partial charges (e.g. from
             :func:`qeq_charges`). When given, non-excluded pairs get a
             shielded Coulomb interaction (1-4 pairs scaled by 0.5).
-        square_planar_metals: When True, 4-coordinate common-d8 metal
-            centers (Ni, Pd, Pt, Rh, Ir, Au) get square-planar angle terms
-            (nearest of 90/180 degrees) instead of tetrahedral ones.
-        coords: Optional (N, 3) coordinates. Only used to apply *vdw_cutoff*;
-            without them the cutoff is ignored and every pair is kept.
+        square_planar_metals: When True, both 4-coordinate d8 metal centers
+            (Ni, Pd, Pt, Rh, Ir, Au — square-planar) and 6-coordinate d-block
+            transition metals (octahedral) get coordinate-based trans/cis angle
+            targets (π/2 cis, π trans) instead of coordination-number defaults.
+        coords: Optional (N, 3) coordinates. Used for the Verlet LJ pair list
+            when *vdw_cutoff* is given, coordinate-based metal angle targets,
+            and H-bond partner detection.
         vdw_cutoff: Optional distance (Angstrom) beyond which LJ pairs are
             dropped. Requires *coords*. Electrostatic pairs are never
             truncated (Coulomb is long-range).
+        use_morse: When True, store Morse-potential flag so the bond term uses
+            D(1−e^{−α Δr})² instead of the harmonic ½k Δr².
+        use_dispersion: When True, build Becke-Johnson damped dispersion pairs
+            alongside the LJ pair list. Requires *coords* and *vdw_cutoff*.
+        use_hbond: When True and *coords* are provided, detect D−H···A triplets
+            (donors/acceptors N, O, F, S) and store them for the H-bond term.
     """
     n = len(atomic_numbers)
     neighbors: List[set] = [set() for _ in range(n)]
@@ -648,6 +737,7 @@ def build_topology(
 
     topo = Topology(atomic_numbers=list(atomic_numbers))
     topo.hybridizations = list(hybridizations) if hybridizations is not None else None
+    topo.use_morse = use_morse
 
     seen_bonds = set()
     order_by_pair = {}
@@ -683,21 +773,24 @@ def build_topology(
             and len(nbrs) == 4
             and atomic_numbers[j] in _SQUARE_PLANAR_METALS
         )
+        is_octahedral = (
+            square_planar_metals
+            and len(nbrs) == 6
+            and atomic_numbers[j] in _OCTAHEDRAL_METALS
+        )
+        is_special_metal = is_sq_planar or is_octahedral
+        # Square-planar: 2 trans pairs (π); octahedral: 3 trans pairs (π).
+        n_trans = 2 if is_sq_planar else (3 if is_octahedral else 0)
         _trans_pairs: Optional[frozenset] = None
-        if is_sq_planar and _coords is not None:
+        if is_special_metal and _coords is not None and n_trans > 0:
             # Geometry-based trans/cis assignment.
             #
-            # With a nearest-target sentinel (snap to 90° or 180°) all six
-            # L-M-L angles start at ~109° and all snap to 90°. The resulting
-            # force network is symmetric in a near-tetrahedral geometry, so
-            # the optimizer cannot tell which pairs should be trans (180°) and
-            # stalls at the wrong local minimum.
-            #
-            # Fix: read the initial geometry. The two largest L-M-L angles
-            # are the most "opposite" pairs — label them trans (target π) and
-            # label the remaining four cis (target π/2). The greedy selection
-            # ensures the two trans pairs never share an atom, which is the
-            # only geometrically valid D4h assignment.
+            # Read the initial L-M-L angles from the coordinates. The n_trans
+            # largest angles (atom-exclusive, greedy) are labelled trans (π);
+            # all remaining pairs are cis (π/2). This avoids the symmetric-
+            # gradient trap in near-tetrahedral/octahedral starting geometries,
+            # where a nearest-target sentinel would assign the same ideal angle
+            # to all pairs and the force network stalls.
             _sq: List[Tuple[float, int, int]] = []
             for _ai, _la in enumerate(nbrs):
                 for _lb in nbrs[_ai + 1:]:
@@ -719,17 +812,17 @@ def build_topology(
                 if _la not in _used and _lb not in _used:
                     _selected.append((_la, _lb))
                     _used.update((_la, _lb))
-                    if len(_selected) == 2:
+                    if len(_selected) == n_trans:
                         break
-            if len(_selected) == 2:
+            if len(_selected) == n_trans:
                 _trans_pairs = frozenset(_selected)
-        if not is_sq_planar:
+        if not is_special_metal:
             theta0 = math.radians(_ideal_angle_deg(hyb(j), len(nbrs)))
         else:
             theta0 = _SQ_PLANAR_T0  # sentinel: used only when _trans_pairs is None
         for a, atom_a in enumerate(nbrs):
             for atom_b in nbrs[a + 1:]:
-                if is_sq_planar:
+                if is_special_metal:
                     if _trans_pairs is not None:
                         target = (
                             math.pi if (atom_a, atom_b) in _trans_pairs
@@ -830,6 +923,39 @@ def build_topology(
             atomic_numbers, charges, excluded, pairs14
         )
 
+    # H-bond triplets: D−H···A where D and A are in _HBOND_DONORS/ACCEPTORS.
+    # Detection uses coords for the distance filter; if coords are absent the
+    # triplet list stays empty and the term is silently inactive.
+    if use_hbond and _coords is not None:
+        for _h in range(n):
+            if atomic_numbers[_h] != 1:
+                continue
+            _donors = [
+                _d for _d in sorted(neighbors[_h])
+                if atomic_numbers[_d] in _HBOND_DONORS
+            ]
+            if not _donors:
+                continue
+            _donor = _donors[0]  # H has at most one donor in a valid molecule
+            for _a in range(n):
+                if atomic_numbers[_a] not in _HBOND_ACCEPTORS:
+                    continue
+                if _a == _donor or _a == _h:
+                    continue
+                if (min(_h, _a), max(_h, _a)) in excluded:
+                    continue
+                if float(np.linalg.norm(_coords[_h] - _coords[_a])) <= _HBOND_CUTOFF_A:
+                    topo.hbond_triplets.append((_donor, _h, _a, _HBOND_EPS, _HBOND_R0_A))
+
+    # Dispersion correction pairs: same pair set as the LJ Verlet list, with
+    # BJ-damped C₆ coefficients computed from the LJ parameters. Rebuilt on
+    # each Verlet refresh (see refresh_vdw_pairs).
+    if use_dispersion:
+        topo.disp_pairs = [
+            _disp_pair(i, j, rmin, eps)
+            for i, j, rmin, eps in topo.vdw_pairs
+        ]
+
     return topo
 
 
@@ -925,7 +1051,8 @@ def energy_and_gradient(
     arrays = topo.compiled()
     if components is not None:
         components.update(
-            bond=0.0, angle=0.0, torsion=0.0, oop=0.0, vdw=0.0, elec=0.0
+            bond=0.0, angle=0.0, torsion=0.0, oop=0.0,
+            vdw=0.0, elec=0.0, hbond=0.0, disp=0.0,
         )
 
     def _record(name: str, e_term: float) -> float:
@@ -933,7 +1060,7 @@ def energy_and_gradient(
             components[name] = e_term
         return e_term
 
-    # --- Bonds: 0.5 * k * (r - r0)^2 ---
+    # --- Bonds: harmonic ½k(r−r₀)² or Morse D(1−e^{−α Δr})² ---
     bond_ij = arrays["bond_ij"]
     if len(bond_ij):
         d = coords[bond_ij[:, 0]] - coords[bond_ij[:, 1]]
@@ -942,8 +1069,19 @@ def energy_and_gradient(
         r = np.where(safe, r, 1.0)
         diff = np.where(safe, r - arrays["bond_r0"], 0.0)
         k = arrays["bond_k"]
-        energy += _record("bond", 0.5 * float(np.sum(k * diff * diff)))
-        g = (k * diff / r)[:, None] * d
+        if topo.use_morse:
+            # D = _MORSE_DEPTH_FACTOR · k · r₀  →  α = sqrt(k / 2D).
+            # Same curvature as harmonic at the minimum; bounded above at D.
+            r0 = arrays["bond_r0"]
+            morse_d = _MORSE_DEPTH_FACTOR * k * r0
+            alpha = np.sqrt(k / (2.0 * morse_d))
+            x_term = np.exp(-alpha * diff)   # e^{−α Δr}
+            energy += _record("bond", float(np.sum(morse_d * (1.0 - x_term) ** 2)))
+            de_dr = 2.0 * morse_d * alpha * x_term * (1.0 - x_term)
+        else:
+            energy += _record("bond", 0.5 * float(np.sum(k * diff * diff)))
+            de_dr = k * diff
+        g = (de_dr / r)[:, None] * d
         np.add.at(grad, bond_ij[:, 0], g)
         np.add.at(grad, bond_ij[:, 1], -g)
 
@@ -1094,15 +1232,67 @@ def energy_and_gradient(
         np.add.at(grad, elec_ij[:, 0], g)
         np.add.at(grad, elec_ij[:, 1], -g)
 
+    # --- H-bond: eps · [(R₀/r)^12 − 2(R₀/r)^6] · cos²(θ_{DHA}) ---
+    # Minimum at r = R₀ (H···A distance), θ = 0° (linear D−H···A).
+    # The LJ-12-6 radial profile is repulsive below R₀ and attractive above,
+    # with the correct r⁻⁶ long-range tail. The cos² angular factor suppresses
+    # bent H-bonds smoothly to zero. Donors and acceptors: N, O, F, S.
+    hbond_dha = arrays["hbond_dha"]
+    if len(hbond_dha):
+        dd = hbond_dha[:, 0]   # donor D
+        hh = hbond_dha[:, 1]   # hydrogen H (vertex of the D-H-A angle)
+        aa = hbond_dha[:, 2]   # acceptor A
+        eps_hb = arrays["hbond_eps"]
+        r0_hb = arrays["hbond_r0"]
+        d_HA = coords[hh] - coords[aa]
+        r_HA = np.maximum(np.linalg.norm(d_HA, axis=1), 1e-6)
+        r6_hb = (r0_hb / r_HA) ** 6
+        r12_hb = r6_hb * r6_hb
+        e_radial = r12_hb - 2.0 * r6_hb
+        # D-H-A angle: D is atom-i, H is vertex (j), A is atom-k.
+        _theta_dha, cos_t, dcos_di, dcos_dk = _bend_terms(coords, dd, hh, aa)
+        cos2 = cos_t * cos_t
+        energy += _record("hbond", float(np.sum(eps_hb * e_radial * cos2)))
+        # Radial gradient (H and A move along the H-A vector).
+        de_dr = eps_hb * 12.0 * (r6_hb - r12_hb) / r_HA
+        g_r = (de_dr / r_HA)[:, None] * d_HA
+        np.add.at(grad, hh, g_r)
+        np.add.at(grad, aa, -g_r)
+        # Angular gradient (D, H, A all feel the cos² dependence).
+        de_cos = (eps_hb * e_radial * 2.0 * cos_t)[:, None]
+        g_D = de_cos * dcos_di
+        g_A = de_cos * dcos_dk
+        np.add.at(grad, dd, g_D)
+        np.add.at(grad, aa, g_A)
+        np.add.at(grad, hh, -(g_D + g_A))
+
+    # --- Dispersion: −c₆ / (r⁶ + r₀⁶) (Becke-Johnson damped) ---
+    # Added on top of the LJ term. At r = rmin it deepens the well by
+    # _DISP_S6 · ε; for r → ∞ it recovers the correct −C₆/r⁶ asymptotics.
+    # The BJ denominator prevents divergence at short range.
+    disp_ij = arrays["disp_ij"]
+    if len(disp_ij):
+        d_disp = coords[disp_ij[:, 0]] - coords[disp_ij[:, 1]]
+        r_disp = np.maximum(np.linalg.norm(d_disp, axis=1), 1e-6)
+        r6_disp = r_disp ** 6
+        c6 = arrays["disp_c6"]
+        r0_6 = arrays["disp_r0_6"]
+        denom = r6_disp + r0_6
+        energy += _record("disp", float(np.sum(-c6 / denom)))
+        de_dr = c6 * 6.0 * r_disp ** 5 / (denom * denom)
+        g_d = (de_dr / r_disp)[:, None] * d_disp
+        np.add.at(grad, disp_ij[:, 0], g_d)
+        np.add.at(grad, disp_ij[:, 1], -g_d)
+
     return energy, grad
 
 
 def energy_components(coords: np.ndarray, topo: Topology) -> Dict[str, float]:
     """Return the per-term energy decomposition of *coords* under *topo*.
 
-    Keys: ``bond``, ``angle``, ``torsion``, ``oop``, ``vdw``, ``elec`` and
-    ``total`` (the sum, identical to :func:`energy_and_gradient`'s energy).
-    Terms absent from the topology report 0.0, so the keys are always present.
+    Keys: ``bond``, ``angle``, ``torsion``, ``oop``, ``vdw``, ``elec``,
+    ``hbond``, ``disp`` and ``total`` (the sum). Terms inactive in the
+    topology report 0.0, so all keys are always present.
     """
     comp: Dict[str, float] = {}
     total, _ = energy_and_gradient(coords, topo, components=comp)
@@ -1460,12 +1650,19 @@ def optimize(
 # --- RDKit boundary ---------------------------------------------------------
 
 
-def topology_from_rdkit(mol: Any, electronic_effects: bool = False) -> Topology:
+def topology_from_rdkit(
+    mol: Any,
+    electronic_effects: bool = False,
+    use_morse: bool = False,
+    use_dispersion: bool = False,
+    use_hbond: bool = False,
+) -> Topology:
     """Build a :class:`Topology` from an RDKit molecule's connectivity.
 
     With *electronic_effects* enabled, QEq partial charges are derived from
-    the conformer geometry (adding a shielded Coulomb term) and 4-coordinate
-    d8 metal centers get square-planar angle targets.
+    the conformer geometry (adding a shielded Coulomb term), 4-coordinate d8
+    metal centers get square-planar angle targets, and 6-coordinate d-block
+    transition metals get octahedral targets.
     """
     atomic_numbers = [atom.GetAtomicNum() for atom in mol.GetAtoms()]
     bond_pairs = [
@@ -1500,6 +1697,9 @@ def topology_from_rdkit(mol: Any, electronic_effects: bool = False) -> Topology:
         square_planar_metals=electronic_effects,
         coords=coords,
         vdw_cutoff=_VDW_CUTOFF_A,
+        use_morse=use_morse,
+        use_dispersion=use_dispersion,
+        use_hbond=use_hbond,
     )
     if charges is not None:
         # Mark the charges as dynamic: the optimizer re-solves them as the
@@ -1532,7 +1732,11 @@ def compute_energy(mol: Any, electronic_effects: bool = False) -> Optional[float
 
 
 def compute_energy_components(
-    mol: Any, electronic_effects: bool = False
+    mol: Any,
+    electronic_effects: bool = False,
+    use_morse: bool = False,
+    use_dispersion: bool = False,
+    use_hbond: bool = False,
 ) -> Optional[Dict[str, float]]:
     """Return the per-term PMEFF energy decomposition of *mol*, or None.
 
@@ -1542,12 +1746,19 @@ def compute_energy_components(
     coords = _conformer_coords(mol)
     if coords is None:
         return None
-    topo = topology_from_rdkit(mol, electronic_effects=electronic_effects)
+    topo = topology_from_rdkit(
+        mol, electronic_effects=electronic_effects,
+        use_morse=use_morse, use_dispersion=use_dispersion, use_hbond=use_hbond,
+    )
     return energy_components(coords, topo)
 
 
 def check_minimum(
-    mol: Any, electronic_effects: bool = False
+    mol: Any,
+    electronic_effects: bool = False,
+    use_morse: bool = False,
+    use_dispersion: bool = False,
+    use_hbond: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """Run a vibrational analysis on *mol*'s current conformer.
 
@@ -1559,7 +1770,10 @@ def check_minimum(
     coords = _conformer_coords(mol)
     if coords is None:
         return None
-    topo = topology_from_rdkit(mol, electronic_effects=electronic_effects)
+    topo = topology_from_rdkit(
+        mol, electronic_effects=electronic_effects,
+        use_morse=use_morse, use_dispersion=use_dispersion, use_hbond=use_hbond,
+    )
     return vibrational_analysis(coords, topo)
 
 
@@ -1568,6 +1782,9 @@ def optimize_rdkit_mol(
     max_iter: int = 500,
     f_tol: float = 1e-3,
     electronic_effects: bool = False,
+    use_morse: bool = False,
+    use_dispersion: bool = False,
+    use_hbond: bool = False,
 ) -> Tuple[bool, Optional[OptimizeResult]]:
     """Optimize an RDKit molecule's conformer in place with PMEFF.
 
@@ -1583,7 +1800,10 @@ def optimize_rdkit_mol(
         logger.warning("PMEFF: molecule has no 3D conformer to optimize.")
         return False, None
 
-    topo = topology_from_rdkit(mol, electronic_effects=electronic_effects)
+    topo = topology_from_rdkit(
+        mol, electronic_effects=electronic_effects,
+        use_morse=use_morse, use_dispersion=use_dispersion, use_hbond=use_hbond,
+    )
     new_coords, result = optimize(coords, topo, max_iter=max_iter, f_tol=f_tol)
 
     if not np.all(np.isfinite(new_coords)):

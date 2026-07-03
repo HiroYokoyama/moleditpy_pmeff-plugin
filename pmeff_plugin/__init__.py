@@ -1,7 +1,11 @@
 """PMEFF — Python Molecular Editor Force Field.
 
 A MoleditPy plugin providing PMEFF, a self-contained universal force field
-that covers the entire periodic table (Z = 1..118). It registers:
+that covers the entire periodic table (Z = 1..118). PMEFF is a pre-DFT
+geometry-cleanup force field: its purpose is *initial structure preparation*
+— removing clashes, fixing bond lengths and angles, placing metal centers in
+the correct coordination geometry — not high-accuracy thermochemistry. It
+registers:
 
 * an **Optimize 3D** method ("PMEFF") that relaxes the current 3D
   geometry with a dependency-free FIRE + L-BFGS optimizer,
@@ -10,8 +14,7 @@ that covers the entire periodic table (Z = 1..118). It registers:
   molecule,
 * an **Analysis** tool ("PMEFF Minimum Check (Vibrational)") that verifies
   the current geometry is a true minimum, and
-* a **Settings/PMEFF Setting** menu entry toggling the electronic-effects
-  terms.
+* a **Settings/PMEFF Setting** menu entry that opens a settings dialog.
 
 See ``forcefield.py`` for the physics; this module only wires it into the host
 via the stable ``PluginContext`` API.
@@ -24,7 +27,7 @@ import tempfile
 from pathlib import Path
 
 PLUGIN_NAME = "PMEFF Plugin"
-PLUGIN_VERSION = "0.2.0"
+PLUGIN_VERSION = "0.3.0"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "PMEFF (Python Molecular Editor Force Field) — a self-contained universal "
@@ -45,10 +48,15 @@ _MAX_ITER = 1000
 # travel with the installed plugin and need no host settings API.
 _SETTINGS_FILE = Path(__file__).resolve().parent / "settings.json"
 _DEFAULT_SETTINGS = {
-    # Adds QEq partial charges (shielded Coulomb term) and square-planar
-    # angle targets for 4-coordinate d8 metal centers. On by default; the
-    # extra terms improve heteroatom and metal geometries at a small cost.
+    # QEq charges + shielded Coulomb + square-planar/octahedral metal targets.
     "electronic_effects": True,
+    # Morse bond potential replaces harmonic; no overhead, on by default.
+    "morse_bonds": True,
+    # D-H...A geometry-dependent attraction (N/O/F/S donors and acceptors).
+    "hbond": True,
+    # BJ-damped C6/r^6 dispersion on top of LJ. Off by default (can be slow
+    # for large molecules with many non-bonded pairs).
+    "dispersion": False,
 }
 
 logger = logging.getLogger(__name__)
@@ -87,6 +95,17 @@ def electronic_effects_enabled() -> bool:
     return bool(load_settings().get("electronic_effects", False))
 
 
+def _settings_kwargs() -> dict:
+    """Return forcefield keyword arguments derived from the current settings."""
+    s = load_settings()
+    return {
+        "electronic_effects": bool(s.get("electronic_effects", True)),
+        "use_morse": bool(s.get("morse_bonds", True)),
+        "use_hbond": bool(s.get("hbond", True)),
+        "use_dispersion": bool(s.get("dispersion", False)),
+    }
+
+
 def initialize(context):
     """Register PMEFF's optimization method, energy tool and settings."""
     context.register_optimization_method(
@@ -100,23 +119,24 @@ def initialize(context):
     )
     context.add_menu_action(
         "Settings/PMEFF Setting",
-        lambda: _toggle_electronic_effects(context),
-        text="Toggle Electronic Effects (QEq charges, square-planar d8)",
+        lambda: _open_settings_dialog(context),
+        text="PMEFF Settings…",
     )
 
 
-def _toggle_electronic_effects(context) -> None:
-    """Flip the electronic-effects option and persist it to settings.json."""
-    settings = load_settings()
-    settings["electronic_effects"] = not settings.get("electronic_effects", False)
-    save_settings(settings)
-    state = "enabled" if settings["electronic_effects"] else "disabled"
-    _status(
-        context,
-        f"PMEFF electronic effects {state} "
-        "(QEq charges + square-planar d8 metals).",
-        5000,
-    )
+def _open_settings_dialog(context) -> None:
+    """Open the PMEFF settings dialog and save any changes."""
+    from .settings_dialog import open_settings_dialog
+
+    parent = getattr(context, "main_window", None)
+    current = load_settings()
+    updated = open_settings_dialog(parent, current)
+    if updated is None:
+        return  # cancelled or headless
+    # Merge: preserve unknown keys the dialog doesn't know about.
+    current.update(updated)
+    save_settings(current)
+    _status(context, "PMEFF settings saved.", 3000)
 
 
 def _optimize(mol, context) -> bool:
@@ -125,9 +145,7 @@ def _optimize(mol, context) -> bool:
 
     try:
         success, result = optimize_rdkit_mol(
-            mol,
-            max_iter=_MAX_ITER,
-            electronic_effects=electronic_effects_enabled(),
+            mol, max_iter=_MAX_ITER, **_settings_kwargs()
         )
     except Exception as exc:  # pragma: no cover - defensive GUI guard
         logger.exception("PMEFF optimization failed")
@@ -161,9 +179,7 @@ def _show_energy(context) -> None:
         return
 
     try:
-        comp = compute_energy_components(
-            mol, electronic_effects=electronic_effects_enabled()
-        )
+        comp = compute_energy_components(mol, **_settings_kwargs())
     except Exception as exc:  # pragma: no cover - defensive GUI guard
         logger.exception("PMEFF energy evaluation failed")
         _status(context, f"PMEFF energy failed: {exc}", 5000)
@@ -173,12 +189,19 @@ def _show_energy(context) -> None:
         _status(context, "PMEFF: molecule has no 3D coordinates.", 4000)
         return
 
+    base = (
+        f"bond {comp['bond']:.2f}, angle {comp['angle']:.2f}, "
+        f"torsion {comp['torsion']:.2f}, oop {comp['oop']:.2f}, "
+        f"vdW {comp['vdw']:.2f}, elec {comp['elec']:.2f}"
+    )
+    extras = "".join(
+        f", {k} {comp[k]:.2f}"
+        for k in ("hbond", "disp")
+        if abs(comp.get(k, 0.0)) > 1e-6
+    )
     _status(
         context,
-        f"PMEFF single-point energy: {comp['total']:.4f} "
-        f"(bond {comp['bond']:.2f}, angle {comp['angle']:.2f}, "
-        f"torsion {comp['torsion']:.2f}, oop {comp['oop']:.2f}, "
-        f"vdW {comp['vdw']:.2f}, elec {comp['elec']:.2f})",
+        f"PMEFF single-point energy: {comp['total']:.4f} ({base}{extras})",
         8000,
     )
 
@@ -193,9 +216,7 @@ def _check_minimum(context) -> None:
         return
 
     try:
-        result = check_minimum(
-            mol, electronic_effects=electronic_effects_enabled()
-        )
+        result = check_minimum(mol, **_settings_kwargs())
     except Exception as exc:  # pragma: no cover - defensive GUI guard
         logger.exception("PMEFF vibrational analysis failed")
         _status(context, f"PMEFF vibrational analysis failed: {exc}", 5000)

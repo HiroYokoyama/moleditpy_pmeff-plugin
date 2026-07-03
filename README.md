@@ -28,19 +28,24 @@ Once installed, PMEFF registers:
 | **PMEFF** | Right-click the *Optimize 3D* button | Relaxes the current 3D geometry with a dependency-free FIRE 2.0 + L-BFGS optimizer. |
 | **PMEFF Single-Point Energy** | *Analysis* menu | Reports the force-field energy (with per-term decomposition) without modifying the geometry. |
 | **PMEFF Minimum Check (Vibrational)** | *Analysis* menu | Diagonalizes the Hessian at the current geometry and reports whether it is a true minimum or a saddle point. |
-| **Toggle Electronic Effects** | *Settings → PMEFF Setting* menu | Switches the QEq-charge and square-planar-d8 treatments (persisted to `settings.json`). |
+| **PMEFF Settings…** | *Settings → PMEFF Setting* menu | Opens a dialog to toggle individual physics options (persisted to `settings.json`). |
+
+> **Scope:** PMEFF is a pre-DFT *geometry-cleanup* force field. Its goal is
+> **initial structure preparation** — removing clashes, correcting bond lengths,
+> angles and torsions, and placing metal centers in the right coordination
+> geometry. It is not designed for high-accuracy thermochemistry. For accurate
+> energies, pair it with the ORCA or PySCF plugins.
 
 ## The physics
 
 For the full specification — functional forms, parameter derivations,
 gradient formulas, non-bonded bookkeeping and the optimizer — see the
-[technical reference](docs/TECHNICAL.md). In brief, PMEFF is a five-term
-force field:
+[technical reference](docs/TECHNICAL.md). In brief, PMEFF has these energy terms:
 
-- **Bonds** — harmonic, `½·k·(r − r₀)²`, with the rest length `r₀` taken as the
-  sum of the two atoms' covalent radii, scaled down by bond order (double
-  ×0.89, triple ×0.78, aromatic interpolated → C(ar)–C(ar) 1.42 Å). The force
-  constant scales linearly with bond order, so C≡C is ~3× as stiff as C–C.
+- **Bonds** — by default **Morse potential** `D(1 − e^{−α Δr})²` (bounded above
+  at the dissociation energy D; same curvature as harmonic at the minimum). The
+  harmonic `½·k·(r − r₀)²` is available as a fallback. Rest lengths and force
+  constants follow the same covalent-radius rules in both cases.
 - **Angles** — harmonic in the bend angle, `½·k·(θ − θ₀)²`, with the ideal angle
   `θ₀` inferred from the central atom's hybridization (falling back to its
   coordination number for metals and other cases where hybridization is
@@ -68,26 +73,28 @@ force field:
   scale) and combined with the Lorentz–Berthelot geometric mean. 1-2 and 1-3
   pairs are excluded; 1-4 pairs get the conventional half well depth.
 
-### Electronic effects (optional)
+### Optional physics terms
 
-**Settings → PMEFF Setting → Toggle Electronic Effects** switches two extra
-treatments (persisted in `pmeff_plugin/settings.json`, **on by default**):
+**Settings → PMEFF Setting** opens a dialog. All settings are persisted in
+`pmeff_plugin/settings.json`. The optional terms (defaults shown) are:
 
-- **QEq partial charges + electrostatics** — still no lookup tables: Slater's
-  rules give the effective nuclear charge from Z alone, Allred–Rochow combines
-  it with the Pyykkö radius into an electronegativity, hardness is the
-  self-Coulomb of the covalent-radius sphere, and an
-  electronegativity-equalization solve yields geometry-aware partial charges
-  (conserving the molecule's formal charge). They feed a shielded Coulomb pair
-  term, so polar contacts and salt bridges influence the geometry. The
-  hardness is deliberately scaled up to damp QEq's over-polarization, so the
-  Coulomb pull of electropositive centers (metals, boron) on nearby H cannot
-  deform the bonded skeleton — and the charges are **re-solved as the
-  geometry relaxes**, staying consistent with the structure being optimized.
-- **Square-planar d8 metals** — 4-coordinate Ni, Pd, Pt, Rh, Ir and Au centers
-  get square-planar angle targets: each L–M–L angle pulls toward the nearer of
-  90°/180°, so the cis/trans assignment emerges from the starting geometry
-  instead of forcing tetrahedral 109.47° on a Pt(II) complex.
+- **Electronic effects** *(on)* — QEq partial charges from Slater Zeff and
+  Allred–Rochow electronegativities feed a shielded Coulomb term; charges are
+  re-solved as the geometry relaxes (envelope theorem keeps the gradient exact).
+  Also enables square-planar angle targets for 4-coordinate Ni/Pd/Pt/Rh/Ir/Au
+  and octahedral targets for 6-coordinate d-block transition metals; cis/trans
+  assignment is read from the starting geometry so tetrahedral Pd²⁺ converges
+  to square-planar.
+- **Morse bond stretching** *(on)* — replaces harmonic bonds with the Morse
+  potential `D(1−e^{−α Δr})²`; bounded above at D, same curvature at the
+  minimum. Improves robustness for severely distorted starting geometries at
+  negligible computational cost.
+- **Hydrogen bond correction** *(on)* — a geometry-dependent D−H···A term
+  (donors/acceptors: N, O, F, S) with a 12-6 radial profile and cos²(∠DHA)
+  angular dependence. Improves H-bond distances and linearity. Fast.
+- **Dispersion correction** *(off by default)* — Becke-Johnson damped C₆/r⁶
+  London dispersion added on top of the LJ term. Improves aromatic stacking
+  distances and hydrophobic contacts. Can slow optimization of large molecules.
 
 Lone pairs are not explicit particles, but their steric effect enters through
 the hybridization-derived angle targets: sp³ N stays pyramidal, sp³ O stays
@@ -108,11 +115,9 @@ over the last 2 Å with zero slope at the cutoff, so both energy and force
 stay continuous as a pair crosses the boundary. A finite-difference Hessian
 over the analytic gradient powers the vibrational minimum check.
 
-> **Note:** PMEFF is a fast, universal *geometry-cleanup* force field, not a
-> replacement for quantum-chemical optimization. Its energies are in internal,
-> consistent units and are meant for relative comparison and clash removal, not
-> for reporting thermochemistry. For accurate energies, pair it with the ORCA or
-> PySCF plugins.
+> **Note:** PMEFF energies are in internal, consistent units meant for
+> **relative comparison and geometry guidance**, not thermochemistry. The goal is
+> to give the DFT optimizer a sensible starting geometry — not to replace it.
 
 ## Installation
 
