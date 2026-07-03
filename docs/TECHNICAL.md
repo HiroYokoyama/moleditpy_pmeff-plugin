@@ -51,8 +51,15 @@ Derived per-atom quantities:
 - **Electronegativity** — Allred–Rochow,
   `χ_Pauling = 0.359 · Z_eff / r² + 0.744`, converted to an energy scale by
   ×2.27 eV per Pauling unit (`electronegativity`).
-- **Hardness** — the self-Coulomb of a sphere of the covalent radius,
-  `η_i = 14.4 / (2 r_i)` eV (`hardness`).
+- **Hardness** — the self-Coulomb of a sphere of the covalent radius, scaled
+  by `_QEQ_HARDNESS_SCALE = 2.0`: `η_i = 2.0 · 14.4 / (2 r_i)` eV
+  (`hardness`). The scale damps QEq's over-polarization — bare
+  electronegativity equalization allows unlimited charge transfer at any
+  distance, giving electropositive centers (metals, boron) charges large
+  enough that their Coulomb pull on nearby H deforms the bonded skeleton.
+  Raising hardness roughly halves charges (quartering pair energies) while
+  conserving the total charge *exactly*, unlike scaling the solved charges,
+  which would break conservation for ions.
 
 ## Energy terms
 
@@ -166,11 +173,18 @@ cutoff) — the skin buys *validity*: the list remains correct until some atom
 has moved more than skin/2 from where the list was built. The optimizer
 tracks that drift and calls `refresh_vdw_pairs(topo, coords)` when the bound
 is crossed, which re-selects all non-excluded pairs inside `cutoff + skin`
-(vectorized over `triu_indices`) and invalidates the compiled-array cache.
-Without this, a pair drifting into the cutoff during optimization would feel
-no LJ force at all. `Topology.excluded_pairs` / `Topology.pairs14` store the
-connectivity-derived exclusion data that makes the rebuild possible without
-the original bond list.
+and invalidates the compiled-array cache. Without this, a pair drifting into
+the cutoff during optimization would feel no LJ force at all.
+`Topology.excluded_pairs` / `Topology.pairs14` store the connectivity-derived
+exclusion data that makes the rebuild possible without the original bond
+list.
+
+**Cell lists.** Both the build-time pair selection and the refresh use
+`_pairs_within(coords, cutoff)`: atoms are binned into cutoff-sized cells and
+only the home cell plus the 13 lexicographically positive neighbor offsets
+(the half-shell, so each cell pair is scanned once) are searched. For bounded
+density this is O(N) instead of the O(N²) all-pairs check, and it reproduces
+the brute-force pair list exactly (regression-tested).
 
 ### 6. Electrostatics (electronic effects only)
 
@@ -184,9 +198,20 @@ J_ij = 14.4 / √(r_ij² + γ_ij²)        γ_ij = 2 · 14.4 / (η_i + η_j)
 ```
 
 which tends to the mean hardness at r = 0. This is a single (N+1)×(N+1)
-linear solve with a Lagrange multiplier; the charges are then **held fixed**
-during optimization. A singular system (coincident atoms) falls back to zero
-charges with a warning.
+linear solve with a Lagrange multiplier. A singular system (coincident
+atoms) falls back to zero charges with a warning.
+
+**Dynamic charges.** The QEq solution depends on the geometry, so charges
+solved at the starting structure describe a geometry that no longer exists
+after a large relaxation. Topologies from the RDKit boundary carry
+`Topology.qeq_total_charge`; for these, the optimizer calls
+`refresh_qeq_charges(topo, coords)` on the same drift cadence as the Verlet
+refresh, re-solving the charges and rebuilding the Coulomb pair list.
+Because the charges *minimize* the QEq energy, the fixed-charge gradient
+remains exact at the re-solved charges (envelope theorem) — the refresh
+costs one linear solve and introduces no new gradient terms. Between
+refreshes the charges are held fixed, keeping energy and gradient mutually
+consistent.
 
 The pair energy is a shielded Coulomb term
 
@@ -229,28 +254,47 @@ and caches them, keyed on the six term-list *lengths*. Growing a topology
 recompiles automatically; `refresh_vdw_pairs` can swap pairs *without*
 changing the count, so it clears the cache explicitly.
 
-## Optimizer — FIRE 2.0
+## Optimizer — FIRE 2.0 with an L-BFGS finisher
 
-`optimize(coords, topo, max_iter, f_tol, max_step)` minimizes with FIRE
-(Bitzek et al. 2006) including the FIRE 2.0 refinements (Guénolé et al.
-2020), with unit masses:
+`optimize(coords, topo, max_iter, f_tol, max_step)` runs two phases sharing
+one iteration budget and one refresh tracker (`_RefreshTracker`, which
+rebuilds the Verlet list and dynamic QEq charges on drift):
 
-1. Convergence check: largest per-atom force magnitude < `f_tol`
-   (default 10⁻³).
-2. Power `P = F · v`. If `P > 0` for more than `n_min = 5` consecutive
+**Phase 1 — FIRE 2.0** (Bitzek et al. 2006; Guénolé et al. 2020), with unit
+masses, until the largest per-atom force drops below the crossover
+(`_LBFGS_CROSSOVER = 1.0`):
+
+1. Power `P = F · v`. If `P > 0` for more than `n_min = 5` consecutive
    steps: `dt ← min(1.1 dt, 0.5)`, `α ← 0.99 α`.
-3. If `P ≤ 0` (uphill): **retract half of the last applied step**
+2. If `P ≤ 0` (uphill): **retract half of the last applied step**
    (`x ← x − ½ Δx_prev`), zero the velocity, `dt ← max(0.5 dt, 10⁻⁴)`,
    reset `α = 0.1`. Using the clamped displacement — not `½ dt v` — keeps
    the retraction bounded when forces were huge (an unclamped retraction can
    teleport atoms after a steric clash).
-4. Semi-implicit Euler + velocity mixing:
+3. Semi-implicit Euler + velocity mixing:
    `v ← v + dt F`, then `v ← (1−α) v + α F̂ |v|`.
-5. Displacement clamp: if any atom would move farther than
+4. Displacement clamp: if any atom would move farther than
    `max_step = 0.20 Å`, the whole step is rescaled so the largest per-atom
    displacement equals `max_step`. This makes stability independent of the
    absolute force-constant scale.
-6. Verlet-list drift check (see above), then re-evaluate energy/forces.
+5. Drift check (Verlet list + QEq charges), then re-evaluate energy/forces.
+
+**Phase 2 — L-BFGS** in the near-quadratic basin, until `f_tol`
+(default 10⁻³) or the budget runs out: two-loop recursion over the last 10
+`(s, y)` curvature pairs, an Armijo backtracking line search
+(`c₁ = 10⁻⁴`, up to 20 halvings), the same per-atom displacement clamp, a
+steepest-descent restart whenever the quasi-Newton direction is not a
+descent direction, and a curvature-history reset whenever the refresh
+tracker rebuilds the pair data (the stored curvature describes the old
+surface). Only `sy > 0` pairs are stored, keeping the implicit inverse
+Hessian positive definite. If the line search stalls (a kink in the
+surface), FIRE resumes with the remaining budget targeting `f_tol` directly.
+
+The division of labor is deliberate: FIRE tolerates the violently anharmonic
+far-from-minimum regime (clashes, rearrangements) where quasi-Newton models
+mislead, while L-BFGS converges superlinearly in the quadratic basin where
+FIRE's inertial dynamics crawl — the handover cut the test suite's optimizer
+time by roughly 3× and makes tolerances of 10⁻⁸ practical.
 
 Two numerically motivated choices deserve emphasis:
 
@@ -265,24 +309,47 @@ Two numerically motivated choices deserve emphasis:
   behavioral tests (and users judging optimizer quality) must start from
   symmetry-broken geometries.
 
-`OptimizeResult` reports `converged`, final `energy`, `steps`, and
-`max_force`.
+`OptimizeResult` reports `converged`, final `energy`, `steps` (summed over
+phases; line-search evaluations are not counted), and `max_force`.
+
+## Vibrational analysis
+
+`hessian(coords, topo)` assembles the (3N, 3N) Hessian by central finite
+differences of the *analytical* gradient (2 gradient evaluations per
+coordinate, 6N total), symmetrized; with unit masses it is also the
+dynamical matrix. `vibrational_analysis(coords, topo, zero_tol=1e-2)`
+diagonalizes it and classifies the eigenvalues:
+
+- `|λ| ≤ zero_tol` — rigid-body modes (6 for a nonlinear molecule, 5 for a
+  linear one, plus genuinely soft modes);
+- `λ < −zero_tol` — imaginary modes: descent directions the optimizer
+  converged *onto*, i.e. a saddle point (the eclipsed-ethane symmetric
+  stationary point is the canonical case, regression-tested);
+- the rest — real vibrations.
+
+Reported `frequencies` are the signed square roots of the eigenvalues in
+internal unit-mass units (**not** cm⁻¹); `is_minimum` is True when no
+imaginary mode is present. The default `zero_tol` sits well below the
+softest real modes (torsions, O(1)) and well above the rigid-mode residuals
+of a tightly converged geometry.
 
 ## RDKit boundary and public API
 
-Only four functions touch RDKit, and `Point3D` is imported lazily so the
+Only five functions touch RDKit, and `Point3D` is imported lazily so the
 core stays importable without it:
 
 | Function | Purpose |
 |---|---|
-| `topology_from_rdkit(mol, electronic_effects)` | connectivity, bond orders (`GetBondTypeAsDouble`), hybridizations, formal-charge total → `build_topology` with the 12 Å cutoff; QEq charges from the conformer when electronic effects are on |
+| `topology_from_rdkit(mol, electronic_effects)` | connectivity, bond orders (`GetBondTypeAsDouble`), hybridizations, formal-charge total → `build_topology` with the 12 Å cutoff; QEq charges from the conformer when electronic effects are on (marked dynamic via `qeq_total_charge`) |
 | `optimize_rdkit_mol(mol, max_iter, f_tol, electronic_effects)` | optimize the conformer in place; `(True, None)` for < 2 atoms, `(False, …)` without a conformer or on non-finite output |
 | `compute_energy(mol, electronic_effects)` | single-point total, or `None` without a conformer |
 | `compute_energy_components(mol, electronic_effects)` | per-term decomposition dict (adds `total`), or `None` |
+| `check_minimum(mol, electronic_effects)` | vibrational analysis of the current conformer, or `None` |
 
 Core (RDKit-free) entry points: `build_topology`, `refresh_vdw_pairs`,
-`energy_and_gradient`, `energy_components`, `optimize`, `qeq_charges`, plus
-the per-element parameter functions (`covalent_radius`, `vdw_radius`,
+`refresh_qeq_charges`, `energy_and_gradient`, `energy_components`,
+`hessian`, `vibrational_analysis`, `optimize`, `qeq_charges`, plus the
+per-element parameter functions (`covalent_radius`, `vdw_radius`,
 `vdw_epsilon`, `slater_zeff`, `electronegativity`, `hardness`,
 `bond_order_factor`).
 

@@ -1,5 +1,8 @@
 # PMEFF — Python Molecular Editor Force Field
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21151897.svg)](https://doi.org/10.5281/zenodo.21151897)
+[![Tests](https://github.com/HiroYokoyama/moleditpy_pmeff-plugin/actions/workflows/test.yml/badge.svg)](https://github.com/HiroYokoyama/moleditpy_pmeff-plugin/actions/workflows/test.yml)
+
 A [MoleditPy](https://github.com/HiroYokoyama/python_molecular_editor) plugin that
 adds **PMEFF**, a self-contained *universal* molecular force field covering the
 **entire periodic table** (Z = 1 – 118). It needs no external QM binary — just
@@ -22,8 +25,10 @@ Once installed, PMEFF registers:
 
 | Feature | Where | Description |
 |---|---|---|
-| **PMEFF (Universal)** | Right-click the *Optimize 3D* button | Relaxes the current 3D geometry with a dependency-free FIRE optimizer. |
-| **PMEFF Single-Point Energy** | *Analysis* menu | Reports the force-field energy of the current geometry without modifying it. |
+| **PMEFF (Universal)** | Right-click the *Optimize 3D* button | Relaxes the current 3D geometry with a dependency-free FIRE 2.0 + L-BFGS optimizer. |
+| **PMEFF Single-Point Energy** | *Analysis* menu | Reports the force-field energy (with per-term decomposition) without modifying the geometry. |
+| **PMEFF Minimum Check (Vibrational)** | *Analysis* menu | Diagonalizes the Hessian at the current geometry and reports whether it is a true minimum or a saddle point. |
+| **Toggle Electronic Effects** | *Settings → PMEFF Setting* menu | Switches the QEq-charge and square-planar-d8 treatments (persisted to `settings.json`). |
 
 ## The physics
 
@@ -65,16 +70,20 @@ force field:
 
 ### Electronic effects (optional)
 
-**PMEFF → Toggle Electronic Effects** switches two extra treatments
-(persisted in `pmeff_plugin/settings.json`, **on by default**):
+**Settings → PMEFF Setting → Toggle Electronic Effects** switches two extra
+treatments (persisted in `pmeff_plugin/settings.json`, **on by default**):
 
 - **QEq partial charges + electrostatics** — still no lookup tables: Slater's
   rules give the effective nuclear charge from Z alone, Allred–Rochow combines
   it with the Pyykkö radius into an electronegativity, hardness is the
-  self-Coulomb of the covalent-radius sphere, and a one-shot
+  self-Coulomb of the covalent-radius sphere, and an
   electronegativity-equalization solve yields geometry-aware partial charges
   (conserving the molecule's formal charge). They feed a shielded Coulomb pair
-  term, so polar contacts and salt bridges influence the geometry.
+  term, so polar contacts and salt bridges influence the geometry. The
+  hardness is deliberately scaled up to damp QEq's over-polarization, so the
+  Coulomb pull of electropositive centers (metals, boron) on nearby H cannot
+  deform the bonded skeleton — and the charges are **re-solved as the
+  geometry relaxes**, staying consistent with the structure being optimized.
 - **Square-planar d8 metals** — 4-coordinate Ni, Pd, Pt, Rh, Ir and Au centers
   get square-planar angle targets: each L–M–L angle pulls toward the nearer of
   90°/180°, so the cis/trans assignment emerges from the starting geometry
@@ -84,17 +93,20 @@ Lone pairs are not explicit particles, but their steric effect enters through
 the hybridization-derived angle targets: sp³ N stays pyramidal, sp³ O stays
 bent, and a conjugated (sp²) amide nitrogen stays planar.
 
-Geometry optimization uses **FIRE** (Fast Inertial Relaxation Engine) with a
-per-atom displacement clamp for stability, plus fully **analytical gradients**
-for all energy terms — including the dihedral and Coulomb derivatives, which
-are verified against numeric differentiation in the test suite. All terms are
-evaluated with vectorized numpy over precompiled index arrays, so evaluation
-cost is dominated by numpy kernels rather than Python loops. The short-range
-van der Waals term is truncated at a 12 Å cutoff (electrostatics, being
-long-range, are not), keeping the non-bonded list near-linear for large
-molecules; a CHARMM-style switching function tapers the LJ term to zero over
-the last 2 Å with zero slope at the cutoff, so both energy and force stay
-continuous as a pair crosses the boundary during optimization.
+Geometry optimization uses **FIRE 2.0** (Fast Inertial Relaxation Engine) for
+the far-from-minimum regime and hands over to an **L-BFGS finisher** in the
+quadratic basin, with a per-atom displacement clamp for stability and fully
+**analytical gradients** for all energy terms — including the dihedral and
+Coulomb derivatives, which are verified against numeric differentiation in
+the test suite. All terms are evaluated with vectorized numpy over
+precompiled index arrays, so evaluation cost is dominated by numpy kernels
+rather than Python loops. The short-range van der Waals term is truncated at
+a 12 Å cutoff (electrostatics, being long-range, are not) with the pair list
+built by an O(N) cell-list search and maintained as a Verlet list during
+optimization; a CHARMM-style switching function tapers the LJ term to zero
+over the last 2 Å with zero slope at the cutoff, so both energy and force
+stay continuous as a pair crosses the boundary. A finite-difference Hessian
+over the analytic gradient powers the vibrational minimum check.
 
 > **Note:** PMEFF is a fast, universal *geometry-cleanup* force field, not a
 > replacement for quantum-chemical optimization. Its energies are in internal,

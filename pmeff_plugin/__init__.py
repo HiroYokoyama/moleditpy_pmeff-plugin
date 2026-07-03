@@ -10,7 +10,7 @@ that covers the entire periodic table (Z = 1..118). It registers:
   molecule,
 * an **Analysis** tool ("PMEFF Minimum Check (Vibrational)") that verifies
   the current geometry is a true minimum, and
-* a **Setting/PMEFF Setting** menu entry toggling the electronic-effects
+* a **Settings/PMEFF Setting** menu entry toggling the electronic-effects
   terms.
 
 See ``forcefield.py`` for the physics; this module only wires it into the host
@@ -98,7 +98,7 @@ def initialize(context):
         "PMEFF Minimum Check (Vibrational)", lambda: _check_minimum(context)
     )
     context.add_menu_action(
-        "Setting/PMEFF Setting",
+        "Settings/PMEFF Setting",
         lambda: _toggle_electronic_effects(context),
         text="Toggle Electronic Effects (QEq charges, square-planar d8)",
     )

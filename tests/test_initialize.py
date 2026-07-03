@@ -42,11 +42,11 @@ def test_initialize_registers_method_and_tools():
     }
 
 
-def test_settings_toggle_lives_under_setting_menu():
+def test_settings_toggle_lives_under_settings_menu():
     ctx = make_context()
     plugin.initialize(ctx)
     ctx.add_menu_action.assert_called_once()
-    assert ctx.add_menu_action.call_args[0][0] == "Setting/PMEFF Setting"
+    assert ctx.add_menu_action.call_args[0][0] == "Settings/PMEFF Setting"
 
 
 def test_registered_optimizer_callback_runs():
