@@ -3,7 +3,7 @@
 A MoleditPy plugin providing PMEFF, a self-contained universal force field
 that covers the entire periodic table (Z = 1..118). It registers:
 
-* an **Optimize 3D** method ("PMEFF (Universal)") that relaxes the current 3D
+* an **Optimize 3D** method ("PMEFF") that relaxes the current 3D
   geometry with a dependency-free FIRE + L-BFGS optimizer,
 * an **Analysis** tool ("PMEFF Single-Point Energy") that reports the current
   force-field energy (with per-term decomposition) without modifying the
@@ -29,7 +29,8 @@ PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "PMEFF (Python Molecular Editor Force Field) — a self-contained universal "
     "force field covering the entire periodic table (Z=1..118). Adds a "
-    "geometry optimizer and a single-point energy tool. No external QM binary "
+    "geometry optimizer, a single-point energy tool with per-term "
+    "decomposition, and a vibrational minimum check. No external QM binary "
     "required."
 )
 PLUGIN_CATEGORY = "Optimization"
@@ -37,7 +38,7 @@ PLUGIN_TAGS = ["Optimization", "Force Field", "3D"]
 PLUGIN_SUPPORTED_MOLEDITPY_VERSION = ">=4.0.0, <5.0.0"
 PLUGIN_DEPENDENCIES = ["numpy", "rdkit"]
 
-_OPT_METHOD_NAME = "PMEFF (Universal)"
+_OPT_METHOD_NAME = "PMEFF"
 _MAX_ITER = 1000
 
 # Plugin options live in a JSON file next to the plugin package, so they

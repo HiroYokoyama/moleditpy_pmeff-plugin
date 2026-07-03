@@ -25,7 +25,7 @@ Once installed, PMEFF registers:
 
 | Feature | Where | Description |
 |---|---|---|
-| **PMEFF (Universal)** | Right-click the *Optimize 3D* button | Relaxes the current 3D geometry with a dependency-free FIRE 2.0 + L-BFGS optimizer. |
+| **PMEFF** | Right-click the *Optimize 3D* button | Relaxes the current 3D geometry with a dependency-free FIRE 2.0 + L-BFGS optimizer. |
 | **PMEFF Single-Point Energy** | *Analysis* menu | Reports the force-field energy (with per-term decomposition) without modifying the geometry. |
 | **PMEFF Minimum Check (Vibrational)** | *Analysis* menu | Diagonalizes the Hessian at the current geometry and reports whether it is a true minimum or a saddle point. |
 | **Toggle Electronic Effects** | *Settings → PMEFF Setting* menu | Switches the QEq-charge and square-planar-d8 treatments (persisted to `settings.json`). |
