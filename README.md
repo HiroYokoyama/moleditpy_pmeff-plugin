@@ -27,7 +27,10 @@ Once installed, PMEFF registers:
 
 ## The physics
 
-PMEFF is a five-term force field:
+For the full specification — functional forms, parameter derivations,
+gradient formulas, non-bonded bookkeeping and the optimizer — see the
+[technical reference](docs/TECHNICAL.md). In brief, PMEFF is a five-term
+force field:
 
 - **Bonds** — harmonic, `½·k·(r − r₀)²`, with the rest length `r₀` taken as the
   sum of the two atoms' covalent radii, scaled down by bond order (double
