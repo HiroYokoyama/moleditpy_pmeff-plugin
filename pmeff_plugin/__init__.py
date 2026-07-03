@@ -27,7 +27,7 @@ import tempfile
 from pathlib import Path
 
 PLUGIN_NAME = "PMEFF Plugin"
-PLUGIN_VERSION = "0.4.0"
+PLUGIN_VERSION = "1.0.0"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "PMEFF (Python Molecular Editor Force Field) — a self-contained universal "
