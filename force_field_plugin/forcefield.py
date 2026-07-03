@@ -101,6 +101,10 @@ _VDW_14_SCALE = 0.5  # conventional scaling of 1-4 LJ interactions
 # is negligible while it turns the O(N^2) vdW list near-linear for large
 # molecules. Electrostatics are long-range and are never truncated.
 _VDW_CUTOFF_A = 12.0
+# Width over which the LJ term is smoothly switched off to reach zero (with
+# zero slope) at the cutoff, so both energy and force stay continuous as a
+# pair crosses the boundary during optimization.
+_VDW_SWITCH_WIDTH_A = 2.0
 # Per-atom well depths scale with the covalent radius as a polarizability
 # proxy: eps_i = _VDW_EPS * (r_i / r_C)^1.5, combined pairwise with the
 # Lorentz-Berthelot geometric mean. Carbon (r = 0.75 A) is the anchor.
@@ -313,6 +317,9 @@ class Topology:
     oops: List[Tuple[int, int, int, int]] = field(default_factory=list)
     vdw_pairs: List[Tuple[int, int, float, float]] = field(default_factory=list)
     elec_pairs: List[Tuple[int, int, float, float]] = field(default_factory=list)
+    # LJ switching cutoff (Angstrom), or None to evaluate every listed pair in
+    # full. Set by :func:`build_topology` when a cutoff was applied.
+    vdw_cutoff: Optional[float] = None
 
     @property
     def num_atoms(self) -> int:
@@ -559,6 +566,7 @@ def build_topology(
     if use_cutoff:
         coords = np.asarray(coords, dtype=float)
         cutoff_sq = float(vdw_cutoff) * float(vdw_cutoff)
+        topo.vdw_cutoff = float(vdw_cutoff)
     for i in range(n):
         for j in range(i + 1, n):
             if (i, j) in excluded:
@@ -590,6 +598,29 @@ def build_topology(
 
 
 # --- Energy & analytical gradient -------------------------------------------
+
+
+def _switch(
+    r: np.ndarray, r_on: float, r_off: float
+) -> Tuple[np.ndarray, np.ndarray]:
+    """CHARMM-style switching factor and its derivative for distances *r*.
+
+    Returns (S, dS/dr) where ``S`` is 1 below *r_on*, falls smoothly to 0 at
+    *r_off*, and has zero slope at both ends, so ``S * E`` and its force are
+    continuous across the cutoff. Outside [r_on, r_off] the derivative is 0.
+    """
+    a = r_off * r_off
+    b = r_on * r_on
+    r2 = r * r
+    denom = (a - b) ** 3
+    s = np.ones_like(r)
+    ds = np.zeros_like(r)
+    mid = (r > r_on) & (r < r_off)
+    am = a - r2[mid]
+    s[mid] = am * am * (a + 2.0 * r2[mid] - 3.0 * b) / denom
+    ds[mid] = 12.0 * r[mid] * am * (b - r2[mid]) / denom
+    s[r >= r_off] = 0.0
+    return s, ds
 
 
 def _bend_terms(
@@ -770,6 +801,9 @@ def energy_and_gradient(
             np.add.at(grad, jj, -(g1 + g2))
 
     # --- van der Waals: eps * ((rmin/r)^12 - 2 (rmin/r)^6) ---
+    # Smoothly switched off over the last _VDW_SWITCH_WIDTH_A before the
+    # cutoff (when one is in effect), so a pair crossing the boundary during
+    # optimization sees no energy or force jump.
     vdw_ij = arrays["vdw_ij"]
     if len(vdw_ij):
         d = coords[vdw_ij[:, 0]] - coords[vdw_ij[:, 1]]
@@ -777,8 +811,16 @@ def energy_and_gradient(
         r6 = (arrays["vdw_rmin"] / r) ** 6
         r12 = r6 * r6
         eps = arrays["vdw_eps"]
-        energy += float(np.sum(eps * (r12 - 2.0 * r6)))
-        de_dr = eps * 12.0 * (r6 - r12) / r
+        e_lj = eps * (r12 - 2.0 * r6)
+        de_lj = eps * 12.0 * (r6 - r12) / r
+        if topo.vdw_cutoff is not None:
+            r_on = max(topo.vdw_cutoff - _VDW_SWITCH_WIDTH_A, 0.0)
+            s, ds = _switch(r, r_on, topo.vdw_cutoff)
+            energy += float(np.sum(s * e_lj))
+            de_dr = ds * e_lj + s * de_lj
+        else:
+            energy += float(np.sum(e_lj))
+            de_dr = de_lj
         g = (de_dr / r)[:, None] * d
         np.add.at(grad, vdw_ij[:, 0], g)
         np.add.at(grad, vdw_ij[:, 1], -g)

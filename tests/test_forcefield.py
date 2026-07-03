@@ -264,6 +264,37 @@ def test_vdw_cutoff_drops_distant_pairs_but_not_electrostatics():
     assert len(charged.elec_pairs) == 1
 
 
+def test_vdw_switching_tapers_smoothly_and_gradient_is_exact():
+    atoms = [6, 6]
+    cutoff = 12.0
+
+    def topo_and_coords(r):
+        coords = np.array([[0.0, 0.0, 0.0], [r, 0.0, 0.0]])
+        topo = ff.build_topology(
+            atoms, [], None, coords=coords, vdw_cutoff=cutoff
+        )
+        return topo, coords
+
+    # Inside the switching window (10-12 A) the analytical gradient must
+    # still match numeric differentiation, i.e. the dS/dr term is correct.
+    topo, coords = topo_and_coords(11.0)
+    _, analytic = ff.energy_and_gradient(coords, topo)
+    numeric = _numeric_gradient(coords, topo)
+    assert np.allclose(analytic, numeric, atol=1e-7)
+
+    # The energy vanishes (with no jump) right at the cutoff.
+    topo_edge, coords_edge = topo_and_coords(11.999)
+    e_edge, _ = ff.energy_and_gradient(coords_edge, topo_edge)
+    assert abs(e_edge) < 1e-6
+
+    # Below the switch-on radius the switched energy equals the untapered LJ.
+    topo_in, coords_in = topo_and_coords(9.0)
+    e_switched, _ = ff.energy_and_gradient(coords_in, topo_in)
+    plain = ff.build_topology(atoms, [], None)  # no cutoff -> no switching
+    e_plain, _ = ff.energy_and_gradient(coords_in, plain)
+    assert e_switched == pytest.approx(e_plain)
+
+
 def test_vdw_cutoff_keeps_close_pairs_unchanged():
     atoms = [6, 6]
     coords = np.array([[0.0, 0.0, 0.0], [4.0, 0.0, 0.0]])

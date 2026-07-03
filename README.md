@@ -89,7 +89,9 @@ evaluated with vectorized numpy over precompiled index arrays, so evaluation
 cost is dominated by numpy kernels rather than Python loops. The short-range
 van der Waals term is truncated at a 12 Å cutoff (electrostatics, being
 long-range, are not), keeping the non-bonded list near-linear for large
-molecules; at 12 Å the dropped LJ interactions are ~10⁻⁴ of a well depth.
+molecules; a CHARMM-style switching function tapers the LJ term to zero over
+the last 2 Å with zero slope at the cutoff, so both energy and force stay
+continuous as a pair crosses the boundary during optimization.
 
 > **Note:** PMEFF is a fast, universal *geometry-cleanup* force field, not a
 > replacement for quantum-chemical optimization. Its energies are in internal,
