@@ -1,0 +1,126 @@
+name: Release
+
+# Two artifacts from one version tag:
+#   1. the MoleditPy plugin zip (attached to a GitHub Release, registry
+#      notified) — mirrors the other moleditpy plugin repos, and
+#   2. the standalone `pmeff` distribution published to PyPI.
+#
+# Trigger by pushing a `vX.Y.Z` tag, or run the workflow manually ("one click"
+# from the Actions tab) with the version as input — the workflow then creates
+# and pushes the tag for you.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. 1.0.0 — without leading v)'
+        required: true
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  release:
+    name: Plugin zip + GitHub Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Create and push tag
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git tag "v$VERSION"
+          git push origin "v$VERSION"
+
+      - name: Verify version matches plugin source
+        run: |
+          FILE_VERSION=$(python3 -c "
+          import re
+          text = open('pmeff_plugin/__init__.py', encoding='utf-8').read()
+          m = re.search(r\"PLUGIN_VERSION\s*=\s*['\\\"](.+?)['\\\"]\", text)
+          print(m.group(1).strip() if m else '')
+          ")
+          echo "Tag/input version : $VERSION"
+          echo "PLUGIN_VERSION    : $FILE_VERSION"
+          if [ "$VERSION" != "$FILE_VERSION" ]; then
+            echo "ERROR: version '$VERSION' does not match PLUGIN_VERSION '$FILE_VERSION' in pmeff_plugin/__init__.py"
+            exit 1
+          fi
+
+      - name: Build plugin zip
+        run: |
+          zip -r "pmeff_plugin_${VERSION}.zip" pmeff_plugin/ \
+            --exclude "*/__pycache__/*" "*/.git/*" "*/settings.json"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v$VERSION" \
+            --title "PMEFF Plugin $VERSION" \
+            --generate-notes \
+            "pmeff_plugin_${VERSION}.zip"
+
+      - name: Trigger moleditpy-plugins registry update
+        if: success()
+        continue-on-error: true
+        env:
+          REGISTRY_PAT: ${{ secrets.REGISTRY_PAT }}
+        run: |
+          if [ -n "$REGISTRY_PAT" ]; then
+            curl -s -X POST \
+              -H "Authorization: Bearer $REGISTRY_PAT" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/HiroYokoyama/moleditpy-plugins/dispatches" \
+              -d "{\"event_type\":\"plugin_release\",\"client_payload\":{\"repo\":\"${{ github.repository }}\",\"tag\":\"v$VERSION\"}}"
+          fi
+
+  pypi:
+    name: Publish pmeff to PyPI
+    needs: release
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/pmeff
+    permissions:
+      # Trusted publishing (OIDC): no API token/secret needed. Configure a
+      # PyPI "pending publisher" for project `pmeff` pointing at this repo,
+      # workflow `release.yml`, environment `pypi` before the first release.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Sync the force field engine into the pmeff package
+        run: python scripts/sync_forcefield.py
+
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade build
+          python -m build
+
+      - name: Verify the built version matches the tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ls dist/
+          test -f "dist/pmeff-${VERSION}.tar.gz" || {
+            echo "ERROR: expected dist/pmeff-${VERSION}.tar.gz not found"; exit 1;
+          }
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

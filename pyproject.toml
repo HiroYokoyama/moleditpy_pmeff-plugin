@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pmeff"
+dynamic = ["version"]
+description = "PMEFF — a self-contained universal molecular force field (Z = 1..118), NumPy-only, with a dependency-free geometry optimizer."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+authors = [{ name = "Hiro Yokoyama" }]
+keywords = [
+    "force field",
+    "molecular mechanics",
+    "geometry optimization",
+    "computational chemistry",
+    "rdkit",
+    "pre-DFT",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Operating System :: OS Independent",
+]
+dependencies = ["numpy>=1.20"]
+
+[project.optional-dependencies]
+# The pure-NumPy API (optimize_coords, build_topology, ...) needs nothing more
+# than numpy. Install the extra to get the RDKit convenience layer
+# (optimize_mol, topology_from_rdkit, compute_energy).
+rdkit = ["rdkit"]
+
+[project.urls]
+Homepage = "https://github.com/HiroYokoyama/moleditpy_pmeff-plugin"
+Repository = "https://github.com/HiroYokoyama/moleditpy_pmeff-plugin"
+
+[tool.setuptools]
+# The engine (pmeff/forcefield.py) and version (pmeff/_version.py) are copied
+# from the plugin by scripts/sync_forcefield.py before every build.
+packages = ["pmeff"]
+
+[tool.setuptools.package-data]
+pmeff = ["py.typed"]
+
+[tool.setuptools.dynamic]
+version = { attr = "pmeff._version.__version__" }
