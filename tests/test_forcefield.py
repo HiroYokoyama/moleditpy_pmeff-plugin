@@ -949,6 +949,33 @@ def test_hbond_gradient_matches_numeric():
     assert np.allclose(g_ana, g_num, atol=1e-5)
 
 
+def test_hbond_gradient_matches_numeric_bent_geometry():
+    # Bent D-H···A geometry (cos²(θ) ≠ 1): the radial gradient must include
+    # the cos²(θ) factor.  A missing factor causes errors of order 0.07–1.25
+    # on the H and A atoms.
+    coords = np.array([
+        [-1.0, 0.0, 0.0],
+        [0.0,  0.0, 0.0],
+        [1.5,  1.5, 0.0],   # ~45° D-H-A bend
+    ])
+    topo = ff.build_topology(
+        [7, 1, 8], [(0, 1)],
+        coords=coords, use_hbond=True,
+    )
+    _, g_ana = ff.energy_and_gradient(coords, topo)
+    step = 1e-5
+    g_num = np.zeros_like(coords)
+    for idx in range(coords.size):
+        cp, cm = coords.copy(), coords.copy()
+        cp.flat[idx] += step
+        cm.flat[idx] -= step
+        ep, _ = ff.energy_and_gradient(cp, topo)
+        em, _ = ff.energy_and_gradient(cm, topo)
+        g_num.flat[idx] = (ep - em) / (2 * step)
+    assert np.allclose(g_ana, g_num, atol=1e-5)
+
+
+
 # --- Dispersion correction -------------------------------------------------
 
 

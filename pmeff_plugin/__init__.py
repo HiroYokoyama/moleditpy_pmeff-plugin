@@ -27,7 +27,7 @@ import tempfile
 from pathlib import Path
 
 PLUGIN_NAME = "PMEFF Plugin"
-PLUGIN_VERSION = "0.3.0"
+PLUGIN_VERSION = "0.3.1"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "PMEFF (Python Molecular Editor Force Field) — a self-contained universal "
@@ -41,7 +41,7 @@ PLUGIN_TAGS = ["Optimization", "Force Field", "3D"]
 PLUGIN_SUPPORTED_MOLEDITPY_VERSION = ">=4.0.0, <5.0.0"
 PLUGIN_DEPENDENCIES = ["numpy", "rdkit"]
 
-_OPT_METHOD_NAME = "PMEFF"
+_OPT_METHOD_NAME = f"PMEFF (v{PLUGIN_VERSION})"
 _MAX_ITER = 1000
 
 # Plugin options live in a JSON file next to the plugin package, so they

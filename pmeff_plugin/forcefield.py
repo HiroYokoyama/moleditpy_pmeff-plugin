@@ -1254,7 +1254,7 @@ def energy_and_gradient(
         cos2 = cos_t * cos_t
         energy += _record("hbond", float(np.sum(eps_hb * e_radial * cos2)))
         # Radial gradient (H and A move along the H-A vector).
-        de_dr = eps_hb * 12.0 * (r6_hb - r12_hb) / r_HA
+        de_dr = eps_hb * cos2 * 12.0 * (r6_hb - r12_hb) / r_HA
         g_r = (de_dr / r_HA)[:, None] * d_HA
         np.add.at(grad, hh, g_r)
         np.add.at(grad, aa, -g_r)

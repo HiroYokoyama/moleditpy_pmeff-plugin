@@ -35,7 +35,7 @@ def test_initialize_registers_method_and_tools():
     plugin.initialize(ctx)
     ctx.register_optimization_method.assert_called_once()
     name = ctx.register_optimization_method.call_args[0][0]
-    assert name == "PMEFF"
+    assert name == f"PMEFF (v{plugin.PLUGIN_VERSION})"
     assert set(_analysis_tools(ctx)) == {
         "PMEFF Single-Point Energy",
         "PMEFF Minimum Check (Vibrational)",
