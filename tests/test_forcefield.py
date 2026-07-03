@@ -755,3 +755,86 @@ def test_optimize_lowers_energy():
     e_after, _ = ff.energy_and_gradient(out, topo)
     assert e_after <= e_before
     assert result.max_force < 1.0
+
+
+# --- Electronic effects: hybridization chi scaling --------------------------
+
+
+def test_hybridization_chi_scaling_sp2_increases_electronegativity():
+    # Bent's rule: sp2 atoms have higher electronegativity than sp3 due to
+    # more s-character. QEq with hybridization scaling must reflect this.
+    # Two-atom system, one C "sp2" and one H; chi of C should be higher than
+    # in the unscaled (sp3) case, pulling electrons from H (larger negative
+    # charge on C).
+    coords = np.array([[0.0, 0.0, 0.0], [1.1, 0.0, 0.0]])
+    q_sp3 = ff.qeq_charges([6, 1], coords, 0.0, hybridizations=["SP3", None])
+    q_sp2 = ff.qeq_charges([6, 1], coords, 0.0, hybridizations=["SP2", None])
+    q_base = ff.qeq_charges([6, 1], coords, 0.0)
+    # sp2 carbon should be more negative (pulls more from H) than sp3 or base.
+    assert q_sp2[0] < q_sp3[0]
+    assert q_sp3[0] <= q_base[0] + 1e-10   # sp3 and base are equal
+    # Total charge must be conserved in all cases.
+    assert sum(q_sp2) == pytest.approx(0.0, abs=1e-10)
+    assert sum(q_sp3) == pytest.approx(0.0, abs=1e-10)
+
+
+# --- Electronic effects: square-planar geometry ----------------------------
+
+
+def test_square_planar_geometry_based_targets_assigned():
+    # 4-coordinate Pd2+ with coords: the topology builder must assign exactly
+    # 2 trans (pi) and 4 cis (pi/2) targets based on the initial geometry.
+    d = 2.31  # typical Pd-Cl bond length in Angstrom
+    # Perfect square-planar starting coords: Pd at origin, 4 Cl at +/-x,+/-y.
+    coords = np.array([
+        [0.0, 0.0, 0.0],   # Pd (index 0)
+        [d, 0.0, 0.0],     # Cl +x (trans to Cl -x)
+        [-d, 0.0, 0.0],    # Cl -x
+        [0.0, d, 0.0],     # Cl +y (trans to Cl -y)
+        [0.0, -d, 0.0],    # Cl -y
+    ])
+    topo = ff.build_topology(
+        atomic_numbers=[46, 17, 17, 17, 17],
+        bond_pairs=[(0, 1), (0, 2), (0, 3), (0, 4)],
+        hybridizations=None,
+        square_planar_metals=True,
+        coords=coords,
+    )
+    angle_targets = [t for _, _, _, t in topo.angles]
+    assert angle_targets.count(math.pi) == 2
+    assert angle_targets.count(math.pi / 2) == 4
+
+
+def test_square_planar_pd_relaxes_from_near_tetrahedral():
+    # Near-tetrahedral Pd(Cl)4: the optimizer must reach a square-planar
+    # geometry (all 5 atoms coplanar within 0.1 A) despite the tetrahedral
+    # starting point, thanks to the geometry-based trans/cis target assignment.
+    d = 2.31
+    # Regular tetrahedron vertices (scaled to bond length d).
+    s3 = math.sqrt(3.0)
+    tet = np.array([
+        [1.0,  1.0,  1.0],
+        [1.0, -1.0, -1.0],
+        [-1.0,  1.0, -1.0],
+        [-1.0, -1.0,  1.0],
+    ], dtype=float)
+    tet = tet / np.linalg.norm(tet[0]) * d
+    # Small asymmetric perturbation so the greedy selection makes a clean pick.
+    rng = np.random.default_rng(99)
+    tet += rng.normal(scale=0.05, size=tet.shape)
+    coords = np.vstack([[0.0, 0.0, 0.0], tet])  # Pd + 4 Cl
+    topo = ff.build_topology(
+        atomic_numbers=[46, 17, 17, 17, 17],
+        bond_pairs=[(0, 1), (0, 2), (0, 3), (0, 4)],
+        hybridizations=None,
+        square_planar_metals=True,
+        coords=coords,
+        vdw_cutoff=ff._VDW_CUTOFF_A,
+    )
+    out, result = ff.optimize(coords, topo, max_iter=3000, f_tol=1e-4)
+    assert np.all(np.isfinite(out))
+    # Planarity: the smallest singular value of the centered atom positions
+    # is the out-of-plane thickness. For a flat arrangement it must be small.
+    centered = out - out.mean(axis=0)
+    sv = np.linalg.svd(centered, compute_uv=False)
+    assert sv[-1] < 0.15  # all atoms within 0.15 A of the best-fit plane

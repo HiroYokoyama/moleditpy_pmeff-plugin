@@ -148,6 +148,11 @@ _QEQ_HARDNESS_SCALE = 2.0
 # Metals that adopt a square-planar geometry when 4-coordinate (common d8
 # centers). Used only when electronic effects are enabled.
 _SQUARE_PLANAR_METALS = frozenset({28, 45, 46, 77, 78, 79})  # Ni Rh Pd Ir Pt Au
+
+# Per-hybridization chi scaling factors (Bent's rule: more s-character →
+# higher electronegativity). Applied before the QEq solve; only sp/sp2 atoms
+# are shifted; everything else keeps the base Allred-Rochow value.
+_CHI_HYB_SCALE: Dict[str, float] = {"SP": 1.08, "SP2": 1.04}
 # Sentinel theta0 marking a square-planar angle term: the energy picks the
 # nearest of the two ideal vertex angles (90 or 180 degrees) at runtime.
 _SQ_PLANAR_T0 = -1.0
@@ -269,6 +274,7 @@ def qeq_charges(
     atomic_numbers: Sequence[int],
     coords: np.ndarray,
     total_charge: float = 0.0,
+    hybridizations: Optional[Sequence[Optional[str]]] = None,
 ) -> np.ndarray:
     """Electronegativity-equalization (QEq-style) partial charges.
 
@@ -276,6 +282,10 @@ def qeq_charges(
     subject to ``sum(q) = total_charge``, with an Ohno-shielded Coulomb
     interaction ``J_ij = 14.4 / sqrt(r^2 + gamma^2)`` that tends to the mean
     hardness at r = 0. One linear solve; charges are then held fixed.
+
+    When *hybridizations* is supplied, the base Allred-Rochow electronegativity
+    of each atom is scaled by :data:`_CHI_HYB_SCALE` before the solve (Bent's
+    rule: higher s-character → higher electronegativity → more charge drawn in).
     """
     n = len(atomic_numbers)
     if n == 0:
@@ -284,6 +294,10 @@ def qeq_charges(
         return np.array([float(total_charge)])
 
     chi = np.array([electronegativity(z) for z in atomic_numbers])
+    if hybridizations is not None:
+        for i, hyb in enumerate(hybridizations):
+            if hyb is not None:
+                chi[i] *= _CHI_HYB_SCALE.get(str(hyb).upper(), 1.0)
     eta = np.array([hardness(z) for z in atomic_numbers])
     coords = np.asarray(coords, dtype=float)
     d = np.linalg.norm(coords[:, None, :] - coords[None, :, :], axis=2)
@@ -346,6 +360,10 @@ class Topology:
     # re-solves the charges (and rebuilds elec_pairs) whenever the geometry
     # has drifted enough to invalidate them. None = charges stay fixed.
     qeq_total_charge: Optional[float] = None
+    # Per-atom hybridization labels stored for QEq refresh: the same
+    # hybridization scaling applied at build time is re-applied on each
+    # charge re-solve so the charges stay consistent. None = no scaling.
+    hybridizations: Optional[List] = None
 
     @property
     def num_atoms(self) -> int:
@@ -518,6 +536,10 @@ def _elec_pair_list(
     and near-zero products dropped.
     """
     n = len(atomic_numbers)
+    # Hardness-derived Ohno shielding: gamma_ij = 2*J_e/(eta_i+eta_j), the
+    # same kernel used in the QEq solve matrix, ensuring the energy and the
+    # charge derivation are internally consistent.
+    eta = [hardness(z) for z in atomic_numbers]
     out: List[Tuple[int, int, float, float]] = []
     for i in range(n):
         for j in range(i + 1, n):
@@ -527,10 +549,7 @@ def _elec_pair_list(
             if (i, j) in pairs14:
                 kqq *= _ELEC_14_SCALE
             if abs(kqq) > 1e-12:
-                gamma = 0.5 * (
-                    covalent_radius(atomic_numbers[i])
-                    + covalent_radius(atomic_numbers[j])
-                )
+                gamma = 2.0 * _EV_COULOMB / (eta[i] + eta[j])
                 out.append((i, j, kqq, gamma))
     return out
 
@@ -570,7 +589,9 @@ def refresh_qeq_charges(topo: Topology, coords: np.ndarray) -> None:
     """
     if topo.qeq_total_charge is None or topo.excluded_pairs is None:
         return
-    charges = qeq_charges(topo.atomic_numbers, coords, topo.qeq_total_charge)
+    charges = qeq_charges(
+        topo.atomic_numbers, coords, topo.qeq_total_charge, topo.hybridizations
+    )
     topo.elec_pairs = _elec_pair_list(
         topo.atomic_numbers, charges, topo.excluded_pairs, topo.pairs14
     )
@@ -626,6 +647,7 @@ def build_topology(
         return hybridizations[idx] if hybridizations is not None else None
 
     topo = Topology(atomic_numbers=list(atomic_numbers))
+    topo.hybridizations = list(hybridizations) if hybridizations is not None else None
 
     seen_bonds = set()
     order_by_pair = {}
@@ -650,34 +672,85 @@ def build_topology(
         topo.bonds.append((key[0], key[1], r0, _K_BOND * order))
 
     rest_length = {(i, j): r0 for i, j, r0, _k in topo.bonds}
+    _coords = np.asarray(coords, dtype=float) if coords is not None else None
 
     for j in range(n):
         nbrs = sorted(neighbors[j])
         if len(nbrs) < 2:
             continue
-        if (
+        is_sq_planar = (
             square_planar_metals
             and len(nbrs) == 4
             and atomic_numbers[j] in _SQUARE_PLANAR_METALS
-        ):
-            theta0 = _SQ_PLANAR_T0
-        else:
+        )
+        _trans_pairs: Optional[frozenset] = None
+        if is_sq_planar and _coords is not None:
+            # Geometry-based trans/cis assignment.
+            #
+            # With a nearest-target sentinel (snap to 90° or 180°) all six
+            # L-M-L angles start at ~109° and all snap to 90°. The resulting
+            # force network is symmetric in a near-tetrahedral geometry, so
+            # the optimizer cannot tell which pairs should be trans (180°) and
+            # stalls at the wrong local minimum.
+            #
+            # Fix: read the initial geometry. The two largest L-M-L angles
+            # are the most "opposite" pairs — label them trans (target π) and
+            # label the remaining four cis (target π/2). The greedy selection
+            # ensures the two trans pairs never share an atom, which is the
+            # only geometrically valid D4h assignment.
+            _sq: List[Tuple[float, int, int]] = []
+            for _ai, _la in enumerate(nbrs):
+                for _lb in nbrs[_ai + 1:]:
+                    _r1 = _coords[_la] - _coords[j]
+                    _r2 = _coords[_lb] - _coords[j]
+                    _n1 = float(np.linalg.norm(_r1))
+                    _n2 = float(np.linalg.norm(_r2))
+                    if _n1 > 1e-9 and _n2 > 1e-9:
+                        _ct = float(np.clip(
+                            np.dot(_r1, _r2) / (_n1 * _n2), -1.0, 1.0
+                        ))
+                    else:
+                        _ct = 0.0
+                    _sq.append((math.acos(_ct), _la, _lb))
+            _sq.sort(reverse=True)
+            _selected: List[Tuple[int, int]] = []
+            _used: set = set()
+            for _, _la, _lb in _sq:
+                if _la not in _used and _lb not in _used:
+                    _selected.append((_la, _lb))
+                    _used.update((_la, _lb))
+                    if len(_selected) == 2:
+                        break
+            if len(_selected) == 2:
+                _trans_pairs = frozenset(_selected)
+        if not is_sq_planar:
             theta0 = math.radians(_ideal_angle_deg(hyb(j), len(nbrs)))
+        else:
+            theta0 = _SQ_PLANAR_T0  # sentinel: used only when _trans_pairs is None
         for a, atom_a in enumerate(nbrs):
             for atom_b in nbrs[a + 1:]:
-                target = theta0
-                if atom_b in neighbors[atom_a]:
-                    # Three-membered ring: the hybridization-based angle
-                    # would fight the three bond terms. Use the exact angle
-                    # the rest lengths dictate (law of cosines) so bonds and
-                    # angles share one minimum (e.g. 60 deg in cyclopropane).
-                    r1 = rest_length[(min(atom_a, j), max(atom_a, j))]
-                    r2 = rest_length[(min(atom_b, j), max(atom_b, j))]
-                    r3 = rest_length[
-                        (min(atom_a, atom_b), max(atom_a, atom_b))
-                    ]
-                    cos_t = (r1 * r1 + r2 * r2 - r3 * r3) / (2.0 * r1 * r2)
-                    target = math.acos(max(-1.0, min(1.0, cos_t)))
+                if is_sq_planar:
+                    if _trans_pairs is not None:
+                        target = (
+                            math.pi if (atom_a, atom_b) in _trans_pairs
+                            else math.pi / 2
+                        )
+                    else:
+                        target = _SQ_PLANAR_T0
+                else:
+                    target = theta0
+                    if atom_b in neighbors[atom_a]:
+                        # Three-membered ring: the hybridization-based angle
+                        # would fight the three bond terms. Use the exact angle
+                        # the rest lengths dictate (law of cosines) so bonds and
+                        # angles share one minimum (e.g. 60 deg in cyclopropane).
+                        r1 = rest_length[(min(atom_a, j), max(atom_a, j))]
+                        r2 = rest_length[(min(atom_b, j), max(atom_b, j))]
+                        r3 = rest_length[
+                            (min(atom_a, atom_b), max(atom_a, atom_b))
+                        ]
+                        cos_t = (r1 * r1 + r2 * r2 - r3 * r3) / (2.0 * r1 * r2)
+                        target = math.acos(max(-1.0, min(1.0, cos_t)))
                 topo.angles.append((atom_a, j, atom_b, target))
 
     # Torsions: one term per i-j-k-l path around every j-k bond whose two
@@ -1416,7 +1489,7 @@ def topology_from_rdkit(mol: Any, electronic_effects: bool = False) -> Topology:
     total = 0.0
     if electronic_effects and coords is not None:
         total = float(sum(atom.GetFormalCharge() for atom in mol.GetAtoms()))
-        charges = qeq_charges(atomic_numbers, coords, total)
+        charges = qeq_charges(atomic_numbers, coords, total, hybridizations)
 
     topo = build_topology(
         atomic_numbers,
