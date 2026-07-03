@@ -2,6 +2,7 @@
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21151897.svg)](https://doi.org/10.5281/zenodo.21151897)
 [![Tests](https://github.com/HiroYokoyama/moleditpy_pmeff-plugin/actions/workflows/test.yml/badge.svg)](https://github.com/HiroYokoyama/moleditpy_pmeff-plugin/actions/workflows/test.yml)
+[![PyPI](https://img.shields.io/pypi/v/pmeff.svg)](https://pypi.org/project/pmeff/)
 
 A [MoleditPy](https://github.com/HiroYokoyama/python_molecular_editor) plugin that
 adds **PMEFF**, a self-contained *universal* molecular force field covering the
@@ -138,6 +139,69 @@ directory:
 - **Linux / macOS:** `~/.moleditpy/plugins/`
 
 Then restart MoleditPy, or use **Plugins → Reload All Plugins**.
+
+## Standalone Python package (`pmeff`)
+
+The force-field engine is also published on PyPI as **`pmeff`** — the same
+physics, usable from any Python script without MoleditPy. The core has **no
+dependency beyond NumPy**; RDKit is an optional extra for the convenience layer.
+
+```bash
+pip install pmeff            # core: NumPy only
+pip install "pmeff[rdkit]"   # adds the RDKit convenience layer (optimize_mol)
+```
+
+### With RDKit — `Mol` in, relaxed `Mol` out
+
+The recommended path: hand it an RDKit molecule that has a 3D conformer, and get
+the **same molecule back with its geometry relaxed**. Connectivity, bond orders,
+formal charges and properties are all preserved (a raw coordinate list would
+throw them away).
+
+```python
+from rdkit import Chem
+from rdkit.Chem import AllChem
+import pmeff
+
+mol = Chem.AddHs(Chem.MolFromSmiles("O[SiH3]"))   # silanol
+AllChem.EmbedMolecule(mol, randomSeed=1)          # give it a 3D conformer
+
+mol, result = pmeff.optimize_mol(mol)             # relaxed in place, and returned
+print(result.converged, result.energy, result.max_force)
+print(Chem.MolToXYZBlock(mol))                    # -> optimized coordinates
+```
+
+`optimize_mol` takes the same physics switches as the plugin
+(`electronic_effects`, `use_morse`, `use_hbond`, `use_dispersion`,
+`use_polar_contraction`) plus `max_iter` and `f_tol`.
+
+### Without RDKit — plain arrays in, coordinates out
+
+For pipelines that don't use RDKit, describe the molecule with atomic numbers, a
+bond list and coordinates:
+
+```python
+import numpy as np
+import pmeff
+
+atomic_numbers = [8, 1, 1]                         # water
+bonds = [(0, 1), (0, 2)]
+coords = np.array([[0.0, 0, 0], [0.96, 0, 0], [-0.3, 0.9, 0.0]])
+
+coords, result = pmeff.optimize_coords(
+    atomic_numbers, bonds, coords, hybridizations=["SP3", None, None]
+)
+print(result.converged)
+print(coords)                                      # optimized (N, 3) array
+```
+
+Optional charges (`pmeff.qeq_charges(...)`), per-bond orders and hybridizations
+sharpen the result. The lower-level engine — `build_topology`,
+`energy_and_gradient`, `energy_components`, `optimize`, `vibrational_analysis` —
+is exported too for custom workflows.
+
+> The engine is a copy of `pmeff_plugin/forcefield.py` (the single source of
+> truth); see [PACKAGING.md](PACKAGING.md) for the build/release process.
 
 ## Development
 
