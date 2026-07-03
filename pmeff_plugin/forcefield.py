@@ -490,6 +490,36 @@ def _vdw_pair(
     return (i, j, rmin, eps)
 
 
+def _elec_pair_list(
+    atomic_numbers: Sequence[int],
+    charges: Sequence[float],
+    excluded: frozenset,
+    pairs14: frozenset,
+) -> List[Tuple[int, int, float, float]]:
+    """Build the shielded-Coulomb pair list for the given charges.
+
+    Every non-excluded pair (Coulomb is long-range — no cutoff), with the
+    Coulomb constant and both charges baked into ``kqq``, 1-4 pairs scaled,
+    and near-zero products dropped.
+    """
+    n = len(atomic_numbers)
+    out: List[Tuple[int, int, float, float]] = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            if (i, j) in excluded:
+                continue
+            kqq = _K_COULOMB * float(charges[i]) * float(charges[j])
+            if (i, j) in pairs14:
+                kqq *= _ELEC_14_SCALE
+            if abs(kqq) > 1e-12:
+                gamma = 0.5 * (
+                    covalent_radius(atomic_numbers[i])
+                    + covalent_radius(atomic_numbers[j])
+                )
+                out.append((i, j, kqq, gamma))
+    return out
+
+
 def refresh_vdw_pairs(topo: Topology, coords: np.ndarray) -> None:
     """Rebuild the LJ pair list of *topo* for the current *coords*.
 
@@ -502,14 +532,10 @@ def refresh_vdw_pairs(topo: Topology, coords: np.ndarray) -> None:
     if topo.vdw_cutoff is None or topo.excluded_pairs is None:
         return
     coords = np.asarray(coords, dtype=float)
-    list_cut = topo.vdw_cutoff + _VDW_SKIN_A
-    ii, jj = np.triu_indices(topo.num_atoms, k=1)
-    d = coords[ii] - coords[jj]
-    close = np.sum(d * d, axis=1) <= list_cut * list_cut
     topo.vdw_pairs = [
-        _vdw_pair(topo.atomic_numbers, int(i), int(j), (int(i), int(j)) in topo.pairs14)
-        for i, j in zip(ii[close], jj[close])
-        if (int(i), int(j)) not in topo.excluded_pairs
+        _vdw_pair(topo.atomic_numbers, i, j, (i, j) in topo.pairs14)
+        for i, j in _pairs_within(coords, topo.vdw_cutoff + _VDW_SKIN_A)
+        if (i, j) not in topo.excluded_pairs
     ]
     # The compiled-array cache is keyed on term-list lengths only; a refresh
     # can swap pairs without changing the count, so drop it explicitly.
@@ -669,37 +695,30 @@ def build_topology(
     pairs14 -= excluded
     topo.excluded_pairs = frozenset(excluded)
     topo.pairs14 = frozenset(pairs14)
-    use_cutoff = coords is not None and vdw_cutoff is not None
-    if use_cutoff:
-        coords = np.asarray(coords, dtype=float)
+    if coords is not None and vdw_cutoff is not None:
         # List pairs out to cutoff + skin (Verlet list): the extra shell
         # contributes zero energy (switched off at the cutoff) but keeps the
-        # list valid while atoms move up to skin/2 during optimization.
-        list_cut = float(vdw_cutoff) + _VDW_SKIN_A
-        cutoff_sq = list_cut * list_cut
+        # list valid while atoms move up to skin/2 during optimization. The
+        # cell-list search keeps this O(N) for bounded density.
         topo.vdw_cutoff = float(vdw_cutoff)
-    for i in range(n):
-        for j in range(i + 1, n):
-            if (i, j) in excluded:
-                continue
-            far = False
-            if use_cutoff:
-                d = coords[i] - coords[j]
-                far = float(d @ d) > cutoff_sq
-            if not far:
+        coords = np.asarray(coords, dtype=float)
+        for i, j in _pairs_within(coords, topo.vdw_cutoff + _VDW_SKIN_A):
+            if (i, j) not in excluded:
                 topo.vdw_pairs.append(
                     _vdw_pair(atomic_numbers, i, j, (i, j) in pairs14)
                 )
-            if charges is not None:
-                kqq = _K_COULOMB * float(charges[i]) * float(charges[j])
-                if (i, j) in pairs14:
-                    kqq *= _ELEC_14_SCALE
-                if abs(kqq) > 1e-12:
-                    gamma = 0.5 * (
-                        covalent_radius(atomic_numbers[i])
-                        + covalent_radius(atomic_numbers[j])
+    else:
+        for i in range(n):
+            for j in range(i + 1, n):
+                if (i, j) not in excluded:
+                    topo.vdw_pairs.append(
+                        _vdw_pair(atomic_numbers, i, j, (i, j) in pairs14)
                     )
-                    topo.elec_pairs.append((i, j, kqq, gamma))
+
+    if charges is not None:
+        topo.elec_pairs = _elec_pair_list(
+            atomic_numbers, charges, excluded, pairs14
+        )
 
     return topo
 

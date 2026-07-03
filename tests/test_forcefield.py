@@ -306,6 +306,22 @@ def test_vdw_cutoff_keeps_close_pairs_unchanged():
     assert e_cut == pytest.approx(e_full)
 
 
+def test_cell_list_pair_search_matches_brute_force():
+    # The O(N) cell-list search must reproduce the brute-force pair list
+    # exactly, including atoms straddling cell boundaries and pairs exactly
+    # at the cutoff scale.
+    rng = np.random.default_rng(42)
+    coords = rng.uniform(-9.0, 9.0, size=(80, 3))
+    for cutoff in (2.0, 4.5, 12.0):
+        expected = sorted(
+            (i, j)
+            for i in range(len(coords))
+            for j in range(i + 1, len(coords))
+            if float(np.sum((coords[i] - coords[j]) ** 2)) <= cutoff * cutoff
+        )
+        assert ff._pairs_within(coords, cutoff) == expected
+
+
 def test_vdw_skin_shell_listed_but_energy_free():
     # Verlet list: pairs between the cutoff and cutoff + skin are listed
     # (so they are watched as atoms move) but the switching function zeroes
