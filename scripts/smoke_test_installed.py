@@ -73,24 +73,77 @@ def _check_core() -> None:
     assert "is_minimum" in vib
     print("[ok] vibrational_analysis: ran")
 
+    # 5) Optimize a few more molecules from plain arrays and check a known
+    #    geometry each — proves the engine relaxes real structures, not just
+    #    imports. Starts are sensible-but-perturbed geometries (not pure noise,
+    #    which can trap a 4-coordinate center in a non-tetrahedral local min).
+    #    (name, nums, bonds, hyb, start, (i,j,k), expected_deg, tol)
+    t = 0.63  # tetrahedral vertex scale for ~1.1 A C-H
+    cases = [
+        ("methane", [6, 1, 1, 1, 1],
+         [(0, 1), (0, 2), (0, 3), (0, 4)], ["SP3", None, None, None, None],
+         [[0, 0, 0], [t, t, t], [t, -t, -t], [-t, t, -t], [-t, -t, t]],
+         (1, 0, 2), 109.5, 3.0),
+        ("ammonia", [7, 1, 1, 1],
+         [(0, 1), (0, 2), (0, 3)], ["SP3", None, None, None],
+         [[0, 0, 0], [0.94, 0, -0.33], [-0.47, 0.82, -0.33], [-0.47, -0.82, -0.33]],
+         (1, 0, 2), 107.0, 3.0),
+        ("hydrogen sulfide", [16, 1, 1],
+         [(0, 1), (0, 2)], ["SP3", None, None],
+         [[0, 0, 0], [1.34, 0, 0], [0.0, 1.34, 0]],
+         (1, 0, 2), 93.0, 3.0),
+    ]
+    rng = np.random.default_rng(0)
+    for name, nums, bonds, hyb, start, (i, j, k), exp, tol in cases:
+        coords0 = np.asarray(start, float) + rng.normal(scale=0.15, size=(len(nums), 3))
+        out, res = pmeff.optimize_coords(nums, bonds, coords0, hybridizations=hyb)
+        assert res.converged, f"{name} did not converge"
+        v1, v2 = out[i] - out[j], out[k] - out[j]
+        ang = math.degrees(
+            math.acos(
+                float(np.clip(np.dot(v1, v2)
+                              / (np.linalg.norm(v1) * np.linalg.norm(v2)), -1, 1))
+            )
+        )
+        assert abs(ang - exp) < tol, f"{name} angle {ang:.1f} (expected {exp})"
+        print(f"[ok] optimize_coords: {name} angle {ang:.1f} deg (~{exp})")
+
 
 def _check_rdkit() -> None:
     from rdkit import Chem
     from rdkit.Chem import AllChem
 
-    mol = Chem.AddHs(Chem.MolFromSmiles("O[SiH3]"))
-    assert AllChem.EmbedMolecule(mol, randomSeed=1) == 0
-    returned, result = pmeff.optimize_mol(mol)
-    assert returned is mol, "optimize_mol should return the same Mol object"
-    assert result.converged, "silanol optimization did not converge"
-    conf = returned.GetConformer()
-    si_o = float(
-        np.linalg.norm(
-            np.array(conf.GetAtomPosition(0)) - np.array(conf.GetAtomPosition(1))
-        )
-    )
-    assert 1.58 < si_o < 1.68, f"Si-O = {si_o:.3f} A out of range"
-    print(f"[ok] optimize_mol: silanol Si-O = {si_o:.3f} A")
+    # A small panel of real molecules: embed, optimize, and check that each
+    # converges — with one representative geometry verified per molecule.
+    # (name, SMILES, (atom_i, atom_j), expected_bond_A, tol) — bond optional.
+    panel = [
+        ("water",    "O",          None, None, None),
+        ("methane",  "C",          None, None, None),
+        ("ethane",   "CC",         (0, 1), 1.50, 0.06),
+        ("ethanol",  "CCO",        (1, 2), 1.43, 0.06),
+        ("benzene",  "c1ccccc1",   (0, 1), 1.42, 0.05),
+        ("acetamide", "CC(=O)N",   None, None, None),
+        ("silanol",  "O[SiH3]",    (0, 1), 1.63, 0.03),   # polar Si-O
+    ]
+    for name, smiles, bond, exp, tol in panel:
+        mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+        assert AllChem.EmbedMolecule(mol, randomSeed=1) == 0, f"embed {name}"
+        returned, result = pmeff.optimize_mol(mol)
+        assert returned is mol, "optimize_mol should return the same Mol object"
+        assert result.converged, f"{name} did not converge"
+        assert math.isfinite(result.energy), f"{name} energy not finite"
+        msg = f"[ok] optimize_mol: {name:9s} E={result.energy:8.2f}"
+        if bond is not None:
+            conf = returned.GetConformer()
+            d = float(
+                np.linalg.norm(
+                    np.array(conf.GetAtomPosition(bond[0]))
+                    - np.array(conf.GetAtomPosition(bond[1]))
+                )
+            )
+            assert abs(d - exp) < tol, f"{name} bond {d:.3f} (expected {exp})"
+            msg += f"  bond {bond[0]}-{bond[1]} = {d:.3f} A (~{exp})"
+        print(msg)
 
 
 def main() -> int:
