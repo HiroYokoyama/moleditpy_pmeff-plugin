@@ -63,9 +63,42 @@ def test_build_topology_water():
     assert len(topo.angles) == 1          # H-O-H
     i, j, k, theta0 = topo.angles[0]
     assert j == 0                          # oxygen is the vertex
-    assert math.degrees(theta0) == pytest.approx(109.47, abs=0.1)
+    # sp3 oxygen carries two lone pairs (CN 2): the H-O-H target is compressed
+    # below tetrahedral to the experimental ~104.5 deg, not 109.47.
+    assert math.degrees(theta0) == pytest.approx(104.47, abs=0.1)
     # The two H atoms are 1-3 to each other -> excluded from vdW.
     assert topo.vdw_pairs == []
+
+
+def test_sp3_lone_pair_angle_compression():
+    # Pnictogen/chalcogen sp3 centers are compressed below tetrahedral by
+    # their lone pairs; period-2 atoms mildly, heavier ones down to ~93 deg.
+    assert ff._ideal_angle_deg("SP3", 2, 8) == pytest.approx(104.47, abs=0.1)  # H2O
+    assert ff._ideal_angle_deg("SP3", 3, 7) == pytest.approx(106.97, abs=0.1)  # NH3
+    assert ff._ideal_angle_deg("SP3", 2, 16) == pytest.approx(93.0, abs=0.1)   # H2S
+    assert ff._ideal_angle_deg("SP3", 3, 15) == pytest.approx(93.0, abs=0.1)   # PH3
+    assert ff._ideal_angle_deg("SP3", 2, 34) == pytest.approx(93.0, abs=0.1)   # H2Se
+
+
+def test_sp3_no_compression_without_lone_pairs():
+    # Carbon (group 14) never compresses, and a fully-coordinated pnictogen
+    # (e.g. ammonium N, CN 4) has no lone pair -> stays tetrahedral.
+    assert ff._ideal_angle_deg("SP3", 4, 6) == pytest.approx(109.47, abs=1e-6)
+    assert ff._ideal_angle_deg("SP3", 4, 7) == pytest.approx(109.47, abs=1e-6)
+    # Missing atomic number -> falls back to the plain tetrahedral angle.
+    assert ff._ideal_angle_deg("SP3", 2) == pytest.approx(109.47, abs=1e-6)
+
+
+def test_ammonia_more_pyramidal_than_tetrahedral():
+    # The three H-N-H targets in ammonia are all the compressed ~107 deg.
+    topo = ff.build_topology(
+        atomic_numbers=[7, 1, 1, 1],
+        bond_pairs=[(0, 1), (0, 2), (0, 3)],
+        hybridizations=["SP3", None, None, None],
+    )
+    assert len(topo.angles) == 3
+    for *_ijk, theta0 in topo.angles:
+        assert math.degrees(theta0) == pytest.approx(106.97, abs=0.1)
 
 
 def test_build_topology_deduplicates_bonds():
@@ -648,7 +681,9 @@ def test_optimize_opens_up_bent_water():
             np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
         )
     )
-    assert angle == pytest.approx(109.47, abs=3.0)
+    # Relaxes to the lone-pair-compressed sp3 oxygen target (~104.5 deg),
+    # opening up from the artificially tight start.
+    assert angle == pytest.approx(104.47, abs=3.0)
     assert result.energy >= 0.0
 
 

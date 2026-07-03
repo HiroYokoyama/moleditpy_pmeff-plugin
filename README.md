@@ -49,11 +49,15 @@ gradient formulas, non-bonded bookkeeping and the optimizer — see the
 - **Angles** — harmonic in the bend angle, `½·k·(θ − θ₀)²`, with the ideal angle
   `θ₀` inferred from the central atom's hybridization (falling back to its
   coordination number for metals and other cases where hybridization is
-  ambiguous). Two special cases: in-ring angles of three-membered rings take
-  their target from the law of cosines over the bond rest lengths (60° in
-  cyclopropane), so bonds and angles share one minimum; and linear sp centers
-  use `k·(1 + cos θ)`, which matches the harmonic curvature at 180° but keeps
-  the gradient finite at the linear minimum.
+  ambiguous). sp³ pnictogens and chalcogens are compressed below tetrahedral
+  by their lone pairs (`4 − coordination` of them): mildly for period-2 atoms
+  (NH₃ ≈ 107°, H₂O ≈ 104.5°), strongly for heavier congeners that bond through
+  near-pure p orbitals (H₂S/PH₃ ≈ 93°). Two more special cases: in-ring angles
+  of three-membered rings take their target from the law of cosines over the
+  bond rest lengths (60° in cyclopropane), so bonds and angles share one
+  minimum; and linear sp centers use `k·(1 + cos θ)`, which matches the
+  harmonic curvature at 180° but keeps the gradient finite at the linear
+  minimum.
 - **Torsions** — a cosine dihedral potential `½·V·(1 + cos(n·φ − γ))`: 2-fold
   for sp²–sp² bonds (keeps double bonds and conjugated systems planar), 3-fold
   for sp³–sp³ bonds (staggered minima), and a weak 6-fold term for mixed

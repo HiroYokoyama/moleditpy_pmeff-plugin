@@ -10,6 +10,9 @@ covalent radius — so no element is ever missing:
   covalent radii, scaled down for double, triple and aromatic bonds.
 * **Angles** — harmonic in the bend angle, with the ideal angle inferred from
   the central atom's hybridization (falling back to its coordination number).
+  sp3 pnictogen/chalcogen centers are compressed below tetrahedral by their
+  lone pairs (VSEPR): mild for N/O (~107/104.5 deg), strong for the heavier
+  congeners (~93 deg), so water, amines and thioethers bend correctly.
 * **Torsions** — a cosine dihedral potential: 2-fold for sp2-sp2 bonds (keeps
   double bonds and conjugated systems planar), 3-fold for sp3-sp3 bonds
   (staggers single bonds). The per-bond barrier is split evenly over all
@@ -210,6 +213,52 @@ _ANGLE_BY_COORDINATION = {
     8: 72.0,
 }
 _DEFAULT_ANGLE_DEG = 109.47
+
+# Lone-pair angle compression for sp3 centers (VSEPR). A bare tetrahedral
+# 109.47 deg is wrong for the commonest heteroatoms: lone pairs occupy more
+# angular space than bonding pairs and squeeze the inter-bond angles below
+# tetrahedral. The effect is confined to the pnictogens (group 15) and
+# chalcogens (group 16) — group 14 sp3 centers keep 109.47, group 17 sp3
+# atoms are terminal (no angle), and group 13 sp3 centers are electron
+# deficient (no lone pair). The number of lone pairs follows directly from
+# the four sp3 electron domains: ``lone_pairs = 4 - coordination``, so this
+# also does the right thing for charged centers (NH4+ has CN 4 -> 0 lone
+# pairs -> 109.47; H3O+ has CN 3 -> 1 lone pair -> mildly pyramidal).
+_PNICTOGENS = frozenset({7, 15, 33, 51, 83, 115})   # N  P  As Sb Bi Mc
+_CHALCOGENS = frozenset({8, 16, 34, 52, 84, 116})   # O  S  Se Te Po Lv
+_LONE_PAIR_ELEMENTS = _PNICTOGENS | _CHALCOGENS
+# Period-2 centers (N, O) hybridize well: each lone pair costs ~2.5 deg,
+# giving NH3 ~107 and H2O ~104.5, matching experiment. Heavier congeners
+# bond through near-pure p orbitals (the s-p energy gap widens down a group),
+# so their hydride angles collapse to ~92-93 deg (H2S 92, PH3 94, H2Se 91)
+# largely independent of the lone-pair count — captured by a flat target.
+_LP_COMPRESSION_PER_PAIR_DEG = 2.5
+_HEAVY_P_BLOCK_ANGLE_DEG = 93.0
+
+
+def _period(atomic_number: int) -> int:
+    """Return the periodic-table period (row) of *atomic_number*."""
+    for period, last_z in enumerate((2, 10, 18, 36, 54, 86, 118), start=1):
+        if atomic_number <= last_z:
+            return period
+    return 7
+
+
+def _sp3_lone_pair_angle(atomic_number: int, coordination: int) -> Optional[float]:
+    """Return the lone-pair-compressed sp3 bond angle (deg), or None.
+
+    None means "no compression applies" — the caller should keep the plain
+    tetrahedral 109.47 deg. Only pnictogen/chalcogen centers carrying at
+    least one lone pair (``lone_pairs = 4 - coordination > 0``) are shifted.
+    """
+    if atomic_number not in _LONE_PAIR_ELEMENTS:
+        return None
+    lone_pairs = 4 - coordination
+    if lone_pairs <= 0:
+        return None
+    if _period(atomic_number) <= 2:
+        return 109.47 - _LP_COMPRESSION_PER_PAIR_DEG * lone_pairs
+    return _HEAVY_P_BLOCK_ANGLE_DEG
 
 
 def covalent_radius(atomic_number: int) -> float:
@@ -475,14 +524,28 @@ class Topology:
         return arrays
 
 
-def _ideal_angle_deg(hybridization: Optional[str], coordination: int) -> float:
-    """Pick an ideal bond angle from hybridization, else coordination number."""
+def _ideal_angle_deg(
+    hybridization: Optional[str],
+    coordination: int,
+    atomic_number: Optional[int] = None,
+) -> float:
+    """Pick an ideal bond angle from hybridization, else coordination number.
+
+    For sp3 centers, *atomic_number* (when given) enables lone-pair
+    compression on pnictogen/chalcogen atoms (see :func:`_sp3_lone_pair_angle`)
+    so water, amines, ethers and their heavier congeners bend correctly rather
+    than sitting at the tetrahedral 109.47 deg.
+    """
     hyb = (hybridization or "").upper()
     if hyb == "SP":
         return 180.0
     if hyb == "SP2":
         return 120.0
     if hyb == "SP3":
+        if atomic_number is not None:
+            compressed = _sp3_lone_pair_angle(atomic_number, coordination)
+            if compressed is not None:
+                return compressed
         return 109.47
     if hyb in ("SP3D", "SP2D"):
         return 90.0
@@ -817,7 +880,9 @@ def build_topology(
             if len(_selected) == n_trans:
                 _trans_pairs = frozenset(_selected)
         if not is_special_metal:
-            theta0 = math.radians(_ideal_angle_deg(hyb(j), len(nbrs)))
+            theta0 = math.radians(
+                _ideal_angle_deg(hyb(j), len(nbrs), atomic_numbers[j])
+            )
         else:
             theta0 = _SQ_PLANAR_T0  # sentinel: used only when _trans_pairs is None
         for a, atom_a in enumerate(nbrs):

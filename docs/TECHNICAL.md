@@ -93,7 +93,18 @@ E = ½ k (θ − θ₀)²
 109.47°, sp³d/sp³d² 90°), falling back to the coordination number for metals
 and unknown cases (`_ideal_angle_deg`, `_ANGLE_BY_COORDINATION`).
 
-Three special cases:
+Four special cases:
+
+- **Lone-pair compression (sp³ pnictogens/chalcogens).** A bare 109.47° is
+  wrong for the commonest heteroatoms, whose lone pairs squeeze the inter-bond
+  angles below tetrahedral. The lone-pair count follows from the four sp³
+  domains, `lone_pairs = 4 − coordination`, so it is correct for charged
+  centers too (NH₄⁺ → 0 lone pairs → 109.47°). Period-2 centers hybridize
+  well and lose ~2.5° per lone pair (NH₃ ≈ 107°, H₂O ≈ 104.5°); heavier
+  congeners bond through near-pure p orbitals and collapse to a flat ~93°
+  (H₂S 92°, PH₃ 94°, H₂Se 91°) — see `_sp3_lone_pair_angle`. Group 14 sp³
+  centers, terminal group-17 atoms, and electron-deficient group-13 centers
+  are untouched.
 
 - **Linear centers (θ₀ = π).** `d θ / d cos θ` diverges at θ = π, so linear
   targets use `E = k (1 + cos θ)` instead — identical curvature at 180° but a
@@ -368,7 +379,8 @@ switching function and the Verlet refresh).
 - **Single-minimum consistency**: geometries where all bonded terms should be
   simultaneously at rest (equilateral 3-ring, exact linear CO₂) must give
   E = 0 and zero gradient.
-- **Optimizer behavior**: stretched bonds relax, water opens to 109.47°,
+- **Optimizer behavior**: stretched bonds relax, water opens to its
+  lone-pair-compressed ~104.5°,
   twisted ethylene planarizes, eclipsed ethane staggers (started 15° off the
   saddle), pyramidal sp² centers flatten, benzene converges planar.
 - **Verlet-list behavior**: skin-shell pairs are listed but energy-free;
