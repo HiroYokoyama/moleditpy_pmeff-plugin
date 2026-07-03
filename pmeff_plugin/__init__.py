@@ -28,9 +28,7 @@ from pathlib import Path
 
 PLUGIN_NAME = "PMEFF Plugin"
 PLUGIN_VERSION = "1.0.2"
-# Must match the GitHub account/username the plugin is released from — the
-# moleditpy plugin registry enforces this strict consistency against the
-# Release URL owner. The human-readable creator name lives in pyproject.toml.
+# Must equal the GitHub username (the moleditpy registry enforces this).
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "PMEFF (Python Molecular Editor Force Field) — a self-contained universal "
