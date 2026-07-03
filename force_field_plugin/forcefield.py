@@ -105,6 +105,12 @@ _VDW_CUTOFF_A = 12.0
 # zero slope) at the cutoff, so both energy and force stay continuous as a
 # pair crosses the boundary during optimization.
 _VDW_SWITCH_WIDTH_A = 2.0
+# Verlet-list skin: the pair list is built out to cutoff + skin, so it stays
+# valid until some atom has moved more than skin/2 since the list was built —
+# only then does the optimizer rebuild it. Pairs inside the skin shell cost
+# nothing energetically (the switching function is zero past the cutoff);
+# the skin buys list validity while atoms move, not extra interactions.
+_VDW_SKIN_A = 2.0
 # Per-atom well depths scale with the covalent radius as a polarizability
 # proxy: eps_i = _VDW_EPS * (r_i / r_C)^1.5, combined pairwise with the
 # Lorentz-Berthelot geometric mean. Carbon (r = 0.75 A) is the anchor.
@@ -320,6 +326,11 @@ class Topology:
     # LJ switching cutoff (Angstrom), or None to evaluate every listed pair in
     # full. Set by :func:`build_topology` when a cutoff was applied.
     vdw_cutoff: Optional[float] = None
+    # Connectivity-derived exclusion data (1-2/1-3 pairs and 1-4 pairs, both
+    # as (i, j) with i < j), kept so :func:`refresh_vdw_pairs` can rebuild the
+    # LJ pair list for new coordinates without the original bond list.
+    excluded_pairs: Optional[frozenset] = None
+    pairs14: Optional[frozenset] = None
 
     @property
     def num_atoms(self) -> int:
@@ -409,6 +420,45 @@ def _torsion_params(
     if {a, b} == {"SP2", "SP3"}:
         return _V_TORSION_MIXED, 6, math.pi
     return None
+
+
+def _vdw_pair(
+    atomic_numbers: Sequence[int], i: int, j: int, is14: bool
+) -> Tuple[int, int, float, float]:
+    """Return the (i, j, rmin, eps) LJ parameters for one non-bonded pair."""
+    rmin = vdw_radius(atomic_numbers[i]) + vdw_radius(atomic_numbers[j])
+    eps = math.sqrt(
+        vdw_epsilon(atomic_numbers[i]) * vdw_epsilon(atomic_numbers[j])
+    )
+    if is14:
+        eps *= _VDW_14_SCALE
+    return (i, j, rmin, eps)
+
+
+def refresh_vdw_pairs(topo: Topology, coords: np.ndarray) -> None:
+    """Rebuild the LJ pair list of *topo* for the current *coords*.
+
+    A cutoff-built pair list is only valid near the geometry it was built
+    from: atoms that drift to within the cutoff of each other would otherwise
+    interact with no LJ term at all. This re-selects every non-excluded pair
+    inside cutoff + skin — the Verlet-list refresh. No-op for topologies
+    built without a cutoff (their list already contains every pair).
+    """
+    if topo.vdw_cutoff is None or topo.excluded_pairs is None:
+        return
+    coords = np.asarray(coords, dtype=float)
+    list_cut = topo.vdw_cutoff + _VDW_SKIN_A
+    ii, jj = np.triu_indices(topo.num_atoms, k=1)
+    d = coords[ii] - coords[jj]
+    close = np.sum(d * d, axis=1) <= list_cut * list_cut
+    topo.vdw_pairs = [
+        _vdw_pair(topo.atomic_numbers, int(i), int(j), (int(i), int(j)) in topo.pairs14)
+        for i, j in zip(ii[close], jj[close])
+        if (int(i), int(j)) not in topo.excluded_pairs
+    ]
+    # The compiled-array cache is keyed on term-list lengths only; a refresh
+    # can swap pairs without changing the count, so drop it explicitly.
+    topo._compiled_cache = None  # pylint: disable=protected-access
 
 
 def build_topology(
@@ -562,10 +612,16 @@ def build_topology(
                     if l not in (i, j):
                         pairs14.add((min(i, l), max(i, l)))
     pairs14 -= excluded
+    topo.excluded_pairs = frozenset(excluded)
+    topo.pairs14 = frozenset(pairs14)
     use_cutoff = coords is not None and vdw_cutoff is not None
     if use_cutoff:
         coords = np.asarray(coords, dtype=float)
-        cutoff_sq = float(vdw_cutoff) * float(vdw_cutoff)
+        # List pairs out to cutoff + skin (Verlet list): the extra shell
+        # contributes zero energy (switched off at the cutoff) but keeps the
+        # list valid while atoms move up to skin/2 during optimization.
+        list_cut = float(vdw_cutoff) + _VDW_SKIN_A
+        cutoff_sq = list_cut * list_cut
         topo.vdw_cutoff = float(vdw_cutoff)
     for i in range(n):
         for j in range(i + 1, n):
@@ -576,13 +632,9 @@ def build_topology(
                 d = coords[i] - coords[j]
                 far = float(d @ d) > cutoff_sq
             if not far:
-                rmin = vdw_radius(atomic_numbers[i]) + vdw_radius(atomic_numbers[j])
-                eps = math.sqrt(
-                    vdw_epsilon(atomic_numbers[i]) * vdw_epsilon(atomic_numbers[j])
+                topo.vdw_pairs.append(
+                    _vdw_pair(atomic_numbers, i, j, (i, j) in pairs14)
                 )
-                if (i, j) in pairs14:
-                    eps *= _VDW_14_SCALE
-                topo.vdw_pairs.append((i, j, rmin, eps))
             if charges is not None:
                 kqq = _K_COULOMB * float(charges[i]) * float(charges[j])
                 if (i, j) in pairs14:
@@ -669,18 +721,33 @@ def _angle_terms(
 
 
 def energy_and_gradient(
-    coords: np.ndarray, topo: Topology
+    coords: np.ndarray,
+    topo: Topology,
+    components: Optional[Dict[str, float]] = None,
 ) -> Tuple[float, np.ndarray]:
     """Return (energy, gradient) for *coords* (shape (N, 3)) under *topo*.
 
     The gradient (dE/dx, same shape as *coords*) is fully analytical, so the
     optimizer converges quickly without finite-difference noise. All five
     energy terms are evaluated with vectorized numpy operations.
+
+    When *components* (a dict) is supplied it is filled with the per-term
+    energy decomposition under the keys ``bond``, ``angle``, ``torsion``,
+    ``oop``, ``vdw`` and ``elec`` — see :func:`energy_components`.
     """
     coords = np.asarray(coords, dtype=float)
     grad = np.zeros_like(coords)
     energy = 0.0
     arrays = topo.compiled()
+    if components is not None:
+        components.update(
+            bond=0.0, angle=0.0, torsion=0.0, oop=0.0, vdw=0.0, elec=0.0
+        )
+
+    def _record(name: str, e_term: float) -> float:
+        if components is not None:
+            components[name] = e_term
+        return e_term
 
     # --- Bonds: 0.5 * k * (r - r0)^2 ---
     bond_ij = arrays["bond_ij"]
@@ -691,7 +758,7 @@ def energy_and_gradient(
         r = np.where(safe, r, 1.0)
         diff = np.where(safe, r - arrays["bond_r0"], 0.0)
         k = arrays["bond_k"]
-        energy += 0.5 * float(np.sum(k * diff * diff))
+        energy += _record("bond", 0.5 * float(np.sum(k * diff * diff)))
         g = (k * diff / r)[:, None] * d
         np.add.at(grad, bond_ij[:, 0], g)
         np.add.at(grad, bond_ij[:, 1], -g)
@@ -716,14 +783,17 @@ def energy_and_gradient(
         )
         linear = t0 > math.pi - 1e-6
         dtheta = theta - t0
-        energy += float(
-            np.sum(
-                np.where(
-                    linear,
-                    _K_ANGLE * (1.0 + cos_t),
-                    0.5 * _K_ANGLE * dtheta * dtheta,
+        energy += _record(
+            "angle",
+            float(
+                np.sum(
+                    np.where(
+                        linear,
+                        _K_ANGLE * (1.0 + cos_t),
+                        0.5 * _K_ANGLE * dtheta * dtheta,
+                    )
                 )
-            )
+            ),
         )
         sin_t = np.sqrt(np.maximum(1.0 - cos_t * cos_t, 1e-12))
         de_dcos = np.where(
@@ -760,7 +830,10 @@ def energy_and_gradient(
         n_per = arrays["tors_n"]
         gamma = arrays["tors_gamma"]
         arg = n_per * phi - gamma
-        energy += 0.5 * float(np.sum(np.where(safe, v * (1.0 + np.cos(arg)), 0.0)))
+        energy += _record(
+            "torsion",
+            0.5 * float(np.sum(np.where(safe, v * (1.0 + np.cos(arg)), 0.0))),
+        )
         de_dphi = np.where(safe, -0.5 * v * n_per * np.sin(arg), 0.0)
 
         # Standard analytical dihedral derivatives (van Schaik et al.),
@@ -791,7 +864,7 @@ def energy_and_gradient(
             )
             delta += theta
             parts.append((oops[:, c1], oops[:, c2], dth_d1, dth_d2))
-        energy += 0.5 * _K_OOP * float(np.sum(delta * delta))
+        energy += _record("oop", 0.5 * _K_OOP * float(np.sum(delta * delta)))
         de = (_K_OOP * delta)[:, None]
         for a1, a2, dth_d1, dth_d2 in parts:
             g1 = de * dth_d1
@@ -816,10 +889,10 @@ def energy_and_gradient(
         if topo.vdw_cutoff is not None:
             r_on = max(topo.vdw_cutoff - _VDW_SWITCH_WIDTH_A, 0.0)
             s, ds = _switch(r, r_on, topo.vdw_cutoff)
-            energy += float(np.sum(s * e_lj))
+            energy += _record("vdw", float(np.sum(s * e_lj)))
             de_dr = ds * e_lj + s * de_lj
         else:
-            energy += float(np.sum(e_lj))
+            energy += _record("vdw", float(np.sum(e_lj)))
             de_dr = de_lj
         g = (de_dr / r)[:, None] * d
         np.add.at(grad, vdw_ij[:, 0], g)
@@ -832,12 +905,25 @@ def energy_and_gradient(
         kqq = arrays["elec_kqq"]
         gamma = arrays["elec_gamma"]
         inv = 1.0 / np.sqrt(np.sum(d * d, axis=1) + gamma * gamma)
-        energy += float(np.sum(kqq * inv))
+        energy += _record("elec", float(np.sum(kqq * inv)))
         g = (-(kqq * inv**3))[:, None] * d
         np.add.at(grad, elec_ij[:, 0], g)
         np.add.at(grad, elec_ij[:, 1], -g)
 
     return energy, grad
+
+
+def energy_components(coords: np.ndarray, topo: Topology) -> Dict[str, float]:
+    """Return the per-term energy decomposition of *coords* under *topo*.
+
+    Keys: ``bond``, ``angle``, ``torsion``, ``oop``, ``vdw``, ``elec`` and
+    ``total`` (the sum, identical to :func:`energy_and_gradient`'s energy).
+    Terms absent from the topology report 0.0, so the keys are always present.
+    """
+    comp: Dict[str, float] = {}
+    total, _ = energy_and_gradient(coords, topo, components=comp)
+    comp["total"] = total
+    return comp
 
 
 @dataclass
@@ -857,11 +943,20 @@ def optimize(
     f_tol: float = 1e-3,
     max_step: float = 0.20,
 ) -> Tuple[np.ndarray, OptimizeResult]:
-    """Minimize the PMEFF energy of *coords* using the FIRE algorithm.
+    """Minimize the PMEFF energy of *coords* using the FIRE 2.0 algorithm.
 
     FIRE (Fast Inertial Relaxation Engine) is a robust, gradient-only optimizer
-    that needs no external solver. A per-atom displacement clamp (*max_step*)
+    that needs no external solver. This implements the FIRE 2.0 refinements
+    (Guenole et al., 2020): on an uphill step the half-step that crossed the
+    crest is retracted before the velocity reset, the timestep has a floor so
+    repeated resets cannot stall progress, and the velocity mixing follows the
+    semi-implicit Euler update. A per-atom displacement clamp (*max_step*)
     keeps it stable regardless of the absolute force-constant scale.
+
+    When *topo* was built with a vdW cutoff, the LJ pair list is treated as a
+    Verlet list: whenever any atom has drifted more than half the list skin
+    since the list was last valid, :func:`refresh_vdw_pairs` rebuilds it, so
+    pairs moving into (or out of) the cutoff keep exact forces throughout.
 
     Args:
         coords: Initial coordinates, shape (N, 3). Not modified in place.
@@ -876,9 +971,14 @@ def optimize(
     x = np.array(coords, dtype=float)
     v = np.zeros_like(x)
 
-    # FIRE tuning constants (Bitzek et al., 2006).
+    # FIRE 2.0 tuning constants (Bitzek et al. 2006; Guenole et al. 2020).
     dt = 0.1
     dt_max = 0.5
+    # Keep the floor far below the stability limit of the stiffest bond
+    # (omega ~ sqrt(2 k_bond) ~ 50 rad per time unit): a floor near the limit
+    # locks the step length at the displacement clamp and the optimizer
+    # orbits the minimum instead of settling into it.
+    dt_min = 1e-4
     n_min = 5
     f_inc = 1.1
     f_dec = 0.5
@@ -887,6 +987,14 @@ def optimize(
 
     alpha = alpha_start
     steps_since_neg = 0
+    dx = np.zeros_like(x)  # last applied (clamped) displacement
+
+    # Verlet-list bookkeeping: x_ref is where the pair list was last valid.
+    track_pairs = (
+        topo.vdw_cutoff is not None and topo.excluded_pairs is not None
+    )
+    x_ref = x.copy() if track_pairs else None
+    half_skin = 0.5 * _VDW_SKIN_A
 
     energy, grad = energy_and_gradient(x, topo)
     forces = -grad
@@ -899,22 +1007,27 @@ def optimize(
 
         power = float(np.sum(forces * v))
         if power > 0.0:
-            fnorm = float(np.linalg.norm(forces))
-            vnorm = float(np.linalg.norm(v))
-            if fnorm > 1e-12:
-                v = (1.0 - alpha) * v + alpha * (forces / fnorm) * vnorm
             steps_since_neg += 1
             if steps_since_neg > n_min:
                 dt = min(dt * f_inc, dt_max)
                 alpha *= f_alpha
         else:
+            # FIRE 2.0 correction: retract half of the last applied step (the
+            # one that went uphill), so the restart begins at the crest
+            # rather than beyond it. Using the clamped displacement — not
+            # dt * v — keeps the retraction bounded when forces were huge.
+            x = x - 0.5 * dx
             v[:] = 0.0
-            dt *= f_dec
+            dt = max(dt * f_dec, dt_min)
             alpha = alpha_start
             steps_since_neg = 0
 
-        # Velocity-Verlet-style update with unit masses.
+        # Semi-implicit Euler with unit masses, then FIRE velocity mixing.
         v = v + dt * forces
+        fnorm = float(np.linalg.norm(forces))
+        if fnorm > 1e-12:
+            vnorm = float(np.linalg.norm(v))
+            v = (1.0 - alpha) * v + alpha * (forces / fnorm) * vnorm
         dx = dt * v
         # Clamp the largest per-atom displacement for stability.
         step_norms = np.linalg.norm(dx, axis=1)
@@ -922,6 +1035,12 @@ def optimize(
         if largest > max_step:
             dx *= max_step / largest
         x = x + dx
+
+        if track_pairs:
+            drift = float(np.max(np.linalg.norm(x - x_ref, axis=1)))
+            if drift > half_skin:
+                refresh_vdw_pairs(topo, x)
+                x_ref = x.copy()
 
         energy, grad = energy_and_gradient(x, topo)
         forces = -grad
@@ -993,12 +1112,25 @@ def _conformer_coords(mol: Any) -> Optional[np.ndarray]:
 
 def compute_energy(mol: Any, electronic_effects: bool = False) -> Optional[float]:
     """Return the PMEFF single-point energy of *mol*, or None if unavailable."""
+    components = compute_energy_components(
+        mol, electronic_effects=electronic_effects
+    )
+    return None if components is None else components["total"]
+
+
+def compute_energy_components(
+    mol: Any, electronic_effects: bool = False
+) -> Optional[Dict[str, float]]:
+    """Return the per-term PMEFF energy decomposition of *mol*, or None.
+
+    Same keys as :func:`energy_components`; None when the molecule has no
+    conformer to evaluate.
+    """
     coords = _conformer_coords(mol)
     if coords is None:
         return None
     topo = topology_from_rdkit(mol, electronic_effects=electronic_effects)
-    energy, _ = energy_and_gradient(coords, topo)
-    return energy
+    return energy_components(coords, topo)
 
 
 def optimize_rdkit_mol(

@@ -306,6 +306,84 @@ def test_vdw_cutoff_keeps_close_pairs_unchanged():
     assert e_cut == pytest.approx(e_full)
 
 
+def test_vdw_skin_shell_listed_but_energy_free():
+    # Verlet list: pairs between the cutoff and cutoff + skin are listed
+    # (so they are watched as atoms move) but the switching function zeroes
+    # their energy; pairs beyond the skin are not listed at all.
+    atoms = [6, 6]
+    cutoff = 12.0
+    in_skin = np.array([[0.0, 0.0, 0.0], [13.0, 0.0, 0.0]])
+    topo = ff.build_topology(atoms, [], None, coords=in_skin, vdw_cutoff=cutoff)
+    assert len(topo.vdw_pairs) == 1
+    energy, grad = ff.energy_and_gradient(in_skin, topo)
+    assert energy == pytest.approx(0.0, abs=1e-12)
+    assert np.abs(grad).max() == pytest.approx(0.0, abs=1e-12)
+
+    beyond = np.array([[0.0, 0.0, 0.0], [cutoff + ff._VDW_SKIN_A + 0.5, 0.0, 0.0]])
+    topo = ff.build_topology(atoms, [], None, coords=beyond, vdw_cutoff=cutoff)
+    assert topo.vdw_pairs == []
+
+
+def test_refresh_vdw_pairs_tracks_moving_atoms():
+    # Three free atoms: only the (0, 1) pair starts inside the list radius.
+    atoms = [6, 6, 6]
+    start = np.array([[0.0, 0.0, 0.0], [3.0, 0.0, 0.0], [40.0, 0.0, 0.0]])
+    topo = ff.build_topology(atoms, [], None, coords=start, vdw_cutoff=12.0)
+    assert {(i, j) for i, j, *_ in topo.vdw_pairs} == {(0, 1)}
+    ff.energy_and_gradient(start, topo)  # warm the compiled-array cache
+
+    # Atom 1 swaps places with atom 2: the pair list must follow, and the
+    # compiled cache (same list length!) must be invalidated.
+    moved = np.array([[0.0, 0.0, 0.0], [40.0, 0.0, 0.0], [3.0, 0.0, 0.0]])
+    ff.refresh_vdw_pairs(topo, moved)
+    assert {(i, j) for i, j, *_ in topo.vdw_pairs} == {(0, 2)}
+    e_moved, _ = ff.energy_and_gradient(moved, topo)
+    plain = ff.build_topology(atoms, [], None)
+    e_ref, _ = ff.energy_and_gradient(moved, plain)
+    # The no-cutoff reference also carries the ~1e-7 LJ tails of the 40 A
+    # pairs, which the cutoff topology correctly omits.
+    assert e_moved == pytest.approx(e_ref, abs=1e-6)
+
+
+def test_refresh_vdw_pairs_keeps_14_scaling():
+    topo = ff.build_topology(
+        [6] * 5, [(0, 1), (1, 2), (2, 3), (3, 4)], None,
+        coords=np.zeros((5, 3)), vdw_cutoff=12.0,
+    )
+    ff.refresh_vdw_pairs(topo, np.zeros((5, 3)))
+    eps = {(i, j): e for i, j, _rmin, e in topo.vdw_pairs}
+    assert eps[(0, 3)] == pytest.approx(ff._VDW_EPS * ff._VDW_14_SCALE)
+    assert eps[(0, 4)] == pytest.approx(ff._VDW_EPS)
+
+
+def test_refresh_is_noop_without_cutoff():
+    topo = ff.build_topology([6, 6], [], None)
+    assert len(topo.vdw_pairs) == 1
+    ff.refresh_vdw_pairs(topo, np.array([[0.0, 0, 0], [50.0, 0, 0]]))
+    assert len(topo.vdw_pairs) == 1  # full list: nothing to prune
+
+
+def test_optimizer_refreshes_pair_list_as_atoms_approach():
+    # Two opposite charges start outside the vdW list radius, so only the
+    # (long-range) Coulomb term acts at first. As the attraction pulls them
+    # in, the Verlet refresh must switch the LJ pair on — the shielded
+    # Coulomb alone has its minimum at r = 0 and would let them collapse.
+    atoms = [6, 6]
+    start = np.array([[0.0, 0.0, 0.0], [20.0, 0.0, 0.0]])
+    topo = ff.build_topology(
+        atoms, [], None, charges=[0.5, -0.5],
+        coords=start, vdw_cutoff=12.0,
+    )
+    assert topo.vdw_pairs == []
+    assert len(topo.elec_pairs) == 1
+
+    out, _result = ff.optimize(start, topo, max_iter=5000)
+    final = float(np.linalg.norm(out[0] - out[1]))
+    assert len(topo.vdw_pairs) == 1        # the refresh picked the pair up
+    assert final > 2.0                     # LJ repulsion prevented collapse
+    assert final < 12.0                    # ... but they did bind
+
+
 def test_no_torsions_without_hybridization():
     topo = ff.build_topology([6, 6, 6, 6], [(0, 1), (1, 2), (2, 3)], None)
     assert topo.torsions == []
@@ -407,6 +485,27 @@ def _dihedral_deg(coords, i, j, k, l):
         float(np.dot(n1, n2)),
     )
     return math.degrees(phi)
+
+
+def test_energy_components_decompose_the_total():
+    topo = ff.build_topology(
+        [8, 1, 1], [(0, 1), (0, 2)], ["SP3", None, None]
+    )
+    coords = np.array(
+        [[0.0, 0.0, 0.0], [1.10, 0.0, 0.0], [-0.20, 0.90, 0.0]]
+    )  # stretched bonds, squeezed angle
+    comp = ff.energy_components(coords, topo)
+    assert set(comp) == {
+        "bond", "angle", "torsion", "oop", "vdw", "elec", "total"
+    }
+    total, _ = ff.energy_and_gradient(coords, topo)
+    parts = sum(v for k, v in comp.items() if k != "total")
+    assert comp["total"] == pytest.approx(total)
+    assert parts == pytest.approx(total)
+    assert comp["bond"] > 0.0
+    assert comp["angle"] > 0.0
+    assert comp["elec"] == 0.0  # no charges given
+    assert comp["torsion"] == 0.0 and comp["oop"] == 0.0
 
 
 def test_energy_minimum_at_rest_length():

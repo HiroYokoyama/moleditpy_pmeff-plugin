@@ -144,7 +144,7 @@ def _optimize(mol, context) -> bool:
 
 def _show_energy(context) -> None:
     """Report the PMEFF single-point energy of the current molecule."""
-    from .forcefield import compute_energy
+    from .forcefield import compute_energy_components
 
     mol = context.current_molecule
     if mol is None:
@@ -152,7 +152,7 @@ def _show_energy(context) -> None:
         return
 
     try:
-        energy = compute_energy(
+        comp = compute_energy_components(
             mol, electronic_effects=electronic_effects_enabled()
         )
     except Exception as exc:  # pragma: no cover - defensive GUI guard
@@ -160,11 +160,18 @@ def _show_energy(context) -> None:
         _status(context, f"PMEFF energy failed: {exc}", 5000)
         return
 
-    if energy is None:
+    if comp is None:
         _status(context, "PMEFF: molecule has no 3D coordinates.", 4000)
         return
 
-    _status(context, f"PMEFF single-point energy: {energy:.4f}", 6000)
+    _status(
+        context,
+        f"PMEFF single-point energy: {comp['total']:.4f} "
+        f"(bond {comp['bond']:.2f}, angle {comp['angle']:.2f}, "
+        f"torsion {comp['torsion']:.2f}, oop {comp['oop']:.2f}, "
+        f"vdW {comp['vdw']:.2f}, elec {comp['elec']:.2f})",
+        8000,
+    )
 
 
 def _status(context, message: str, timeout: int = 3000) -> None:
