@@ -241,6 +241,7 @@ def test_save_load_roundtrip_all_settings_keys(settings_file):
         "morse_bonds": False,
         "hbond": False,
         "dispersion": True,
+        "polar_contraction": False,
     }
     plugin.save_settings(expected)
     loaded = plugin.load_settings()
@@ -282,3 +283,4 @@ def test_optimizer_passes_electronic_effects_flag(settings_file, monkeypatch):
     assert "use_morse" in seen
     assert "use_hbond" in seen
     assert "use_dispersion" in seen
+    assert "use_polar_contraction" in seen

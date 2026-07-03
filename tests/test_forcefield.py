@@ -49,6 +49,40 @@ def test_bond_order_factor_shortens_higher_orders():
     assert ff.bond_order_factor(4.0) == pytest.approx(0.78)
 
 
+def test_polar_bond_contraction_only_fires_for_polar_bonds():
+    # Nonpolar and mildly polar organic bonds are untouched...
+    assert ff.polar_bond_contraction(6, 6) == 0.0          # C-C
+    assert ff.polar_bond_contraction(6, 1) == 0.0          # C-H
+    assert ff.polar_bond_contraction(6, 8) == pytest.approx(0.0, abs=1e-3)  # C-O
+    # ...while strongly polar bonds contract, capped at 0.20 A.
+    assert ff.polar_bond_contraction(6, 9) > 0.02          # C-F
+    assert ff.polar_bond_contraction(14, 8) > 0.10         # Si-O
+    assert ff.polar_bond_contraction(11, 9) == pytest.approx(0.20)  # Na-F capped
+    # Symmetric in its arguments.
+    assert ff.polar_bond_contraction(14, 8) == ff.polar_bond_contraction(8, 14)
+
+
+def test_bond_rest_length_fixes_polar_bonds_keeps_organic():
+    # Si-O: plain covalent sum is 1.79 A (0.16 too long); contraction -> ~1.63.
+    plain_si_o = ff.covalent_radius(14) + ff.covalent_radius(8)
+    assert plain_si_o == pytest.approx(1.79, abs=0.01)
+    assert ff.bond_rest_length(14, 8, 1.0) == pytest.approx(1.63, abs=0.02)
+    # C-F improves from 1.39 toward the experimental 1.35.
+    assert ff.bond_rest_length(6, 9, 1.0) == pytest.approx(1.35, abs=0.02)
+    # Organic C-C is unchanged from the plain covalent-radius result.
+    assert ff.bond_rest_length(6, 6, 1.0) == pytest.approx(1.50, abs=1e-6)
+    # P=O inherits both the polarity contraction and the double-bond factor.
+    assert ff.bond_rest_length(15, 8, 2.0) == pytest.approx(1.48, abs=0.03)
+
+
+def test_build_topology_polar_contraction_toggle():
+    kw = dict(atomic_numbers=[14, 8], bond_pairs=[(0, 1)])
+    on = ff.build_topology(**kw, use_polar_contraction=True)
+    off = ff.build_topology(**kw, use_polar_contraction=False)
+    assert on.bonds[0][2] == pytest.approx(1.63, abs=0.02)
+    assert off.bonds[0][2] == pytest.approx(1.79, abs=0.01)
+
+
 # --- Topology construction --------------------------------------------------
 
 

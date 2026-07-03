@@ -75,11 +75,32 @@ decomposition under the keys `bond`, `angle`, `torsion`, `oop`, `vdw`,
 E = ½ k (r − r₀)²          k = 700 · (bond order)
 ```
 
-`r₀` is the sum of the two covalent radii scaled by the bond-order factor:
-linear interpolation through the anchors (1.0 → ×1.00, 2.0 → ×0.89,
-3.0 → ×0.78), clamped outside; anchored to C–C 1.50 Å / C=C 1.33 Å /
-C≡C 1.20 Å, so aromatic order 1.5 gives C(ar)–C(ar) = 1.42 Å
-(`bond_order_factor`). Stiffness grows linearly with order (C≡C ≈ 3× C–C).
+`r₀` is the sum of the two covalent radii, contracted for bond polarity, then
+scaled by the bond-order factor: linear interpolation through the anchors
+(1.0 → ×1.00, 2.0 → ×0.89, 3.0 → ×0.78), clamped outside; anchored to
+C–C 1.50 Å / C=C 1.33 Å / C≡C 1.20 Å, so aromatic order 1.5 gives
+C(ar)–C(ar) = 1.42 Å (`bond_order_factor`). Stiffness grows linearly with
+order (C≡C ≈ 3× C–C).
+
+**Polar-bond contraction** (`polar_bond_contraction`, `bond_rest_length`).
+Summing two homonuclear-derived covalent radii ignores the ionic contraction
+of a polar bond, leaving e.g. Si–O 0.16 Å too long (1.79 vs 1.63), the
+metal-oxides and P–O similarly long, and C–F ~0.04 Å long. The rest length is
+shortened by a *capped, quadratic-above-threshold* function of the
+Allred–Rochow electronegativity difference Δχ:
+
+```
+Δr = min(0.157 · (Δχ − 2.0)²,  0.20)   for Δχ > 2.0,  else 0
+```
+
+Quadratic-above-threshold so it is negligible for the mildly polar organic
+bonds the plain radii already handle (C–O/C–N/C–H/O–H all move < 0.001 Å) and
+only bites for genuinely polar bonds; capped at 0.20 Å so even very ionic
+pairs contract by a bounded amount rather than collapsing (Na–F → 1.99 Å, gas
+1.93, not the unphysical value an uncapped quadratic would give). Applied to
+the single-bond length before the order factor, so a polar multiple bond
+(P=O → 1.48 Å) inherits both effects. Coefficient tuned to Si–O; togglable via
+`use_polar_contraction` (build) / the "Polar bond contraction" setting.
 
 ### 2. Angle bend
 

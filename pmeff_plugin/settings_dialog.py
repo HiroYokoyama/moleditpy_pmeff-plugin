@@ -93,6 +93,16 @@ def open_settings_dialog(parent: object, current: dict) -> Optional[dict]:
         "distances and hydrophobic contacts. Off by default.",
         default=False,
     )
+    _add(
+        "polar_contraction",
+        "Polar bond contraction",
+        "Shortens polar bond rest lengths by a capped, quadratic function of "
+        "the Allred-Rochow electronegativity difference (Schomaker-Stevenson "
+        "idea). Fixes bonds the plain covalent-radius sum leaves too long — "
+        "Si-O 1.79→1.63 Å, P=O, B-O, metal-oxides, C-F — while leaving "
+        "organic C-C/C-O/C-N/C-H untouched. On by default.",
+        default=True,
+    )
 
     layout.addSpacing(8)
     buttons = QDialogButtonBox(

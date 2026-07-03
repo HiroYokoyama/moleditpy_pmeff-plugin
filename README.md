@@ -45,7 +45,11 @@ gradient formulas, non-bonded bookkeeping and the optimizer — see the
 - **Bonds** — by default **Morse potential** `D(1 − e^{−α Δr})²` (bounded above
   at the dissociation energy D; same curvature as harmonic at the minimum). The
   harmonic `½·k·(r − r₀)²` is available as a fallback. Rest lengths and force
-  constants follow the same covalent-radius rules in both cases.
+  constants follow the same covalent-radius rules in both cases, with a
+  **polar-bond contraction** (a capped, quadratic function of the
+  electronegativity difference) that pulls in bonds the plain radius sum leaves
+  too long — Si–O 1.79→1.63 Å, P=O, B–O, the metal-oxides and C–F — while
+  leaving organic C–C/C–O/C–N/C–H unchanged. Toggleable in settings.
 - **Angles** — harmonic in the bend angle, `½·k·(θ − θ₀)²`, with the ideal angle
   `θ₀` inferred from the central atom's hybridization (falling back to its
   coordination number for metals and other cases where hybridization is

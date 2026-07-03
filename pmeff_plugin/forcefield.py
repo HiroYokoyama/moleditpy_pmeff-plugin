@@ -7,7 +7,10 @@ is *derived* from a single per-element property — the Pyykko single-bond
 covalent radius — so no element is ever missing:
 
 * **Bonds** — harmonic, with the rest length taken as the sum of the two
-  covalent radii, scaled down for double, triple and aromatic bonds.
+  covalent radii, scaled down for double, triple and aromatic bonds and
+  contracted for bond polarity (a capped electronegativity-difference term
+  that fixes over-long polar bonds such as Si-O, P=O and the metal-oxides
+  while leaving organic bonds untouched).
 * **Angles** — harmonic in the bend angle, with the ideal angle inferred from
   the central atom's hybridization (falling back to its coordination number).
   sp3 pnictogen/chalcogen centers are compressed below tetrahedral by their
@@ -130,6 +133,22 @@ _V_TORSION_MIXED = 0.5  # sp2-sp3: 6-fold, nearly free rotation
 # C=C 1.33 A -> x0.89, C#C 1.20 A -> x0.78. Intermediate (e.g. aromatic 1.5)
 # orders are interpolated linearly; aromatic C-C comes out at 1.42 A.
 _BOND_ORDER_ANCHORS = ((1.0, 1.00), (2.0, 0.89), (3.0, 0.78))
+
+# Polar-bond length contraction (Schomaker-Stevenson idea). Summing two
+# covalent single-bond radii ignores the ionic contraction of a polar bond:
+# a large electronegativity difference draws the atoms closer than the
+# homonuclear-derived radii predict. The plain sum leaves e.g. Si-O 0.16 A
+# too long (1.79 vs 1.63), P-O and the metal-oxides similarly long, and C-F
+# ~0.04 A long. The correction is *quadratic above a threshold* in the
+# Allred-Rochow electronegativity difference, so it is negligible for the
+# mildly polar organic bonds the plain radii already handle well (C-O, C-N,
+# C-H, O-H all move < 0.001 A) and only bites for genuinely polar bonds. It
+# is capped so that even very ionic pairs (alkali halides) contract by a
+# bounded amount rather than collapsing: Na-F lands at 1.99 A (gas 1.93),
+# not the unphysical value an uncapped quadratic would give.
+_POLAR_CONTRACTION_CHI0 = 2.0     # AR-chi difference below which no contraction
+_POLAR_CONTRACTION_COEF = 0.157   # A per (delta-chi - chi0)^2; tuned to Si-O
+_POLAR_CONTRACTION_CAP = 0.20     # max contraction (Angstrom)
 
 # --- Optional "electronic effects" parameters --------------------------------
 
@@ -330,6 +349,36 @@ def bond_order_factor(order: float) -> float:
     return anchors[-1][1]
 
 
+def polar_bond_contraction(z_i: int, z_j: int) -> float:
+    """Return the polar-bond length contraction (Angstrom) for a Z_i-Z_j bond.
+
+    A capped, quadratic-above-threshold function of the Allred-Rochow
+    electronegativity difference (see :data:`_POLAR_CONTRACTION_COEF`). Zero
+    for nonpolar and mildly polar bonds; grows for strongly polar bonds; never
+    exceeds :data:`_POLAR_CONTRACTION_CAP`.
+    """
+    delta = abs(pauling_electronegativity(z_i) - pauling_electronegativity(z_j))
+    excess = delta - _POLAR_CONTRACTION_CHI0
+    if excess <= 0.0:
+        return 0.0
+    return min(_POLAR_CONTRACTION_COEF * excess * excess, _POLAR_CONTRACTION_CAP)
+
+
+def bond_rest_length(z_i: int, z_j: int, order: float = 1.0) -> float:
+    """Return the PMEFF rest length (Angstrom) of a Z_i-Z_j bond of *order*.
+
+    The Pyykko single-bond covalent radii are summed, contracted for bond
+    polarity (:func:`polar_bond_contraction`), then scaled for the bond order
+    (:func:`bond_order_factor`). The polarity contraction is applied to the
+    single-bond length before the order scaling, so a polar multiple bond
+    (P=O, S=O) inherits both effects.
+    """
+    base = covalent_radius(z_i) + covalent_radius(z_j) - polar_bond_contraction(
+        z_i, z_j
+    )
+    return base * bond_order_factor(order)
+
+
 def slater_zeff(atomic_number: int) -> float:
     """Effective nuclear charge felt by the outermost s/p shell (Slater).
 
@@ -356,16 +405,21 @@ def slater_zeff(atomic_number: int) -> float:
     return z - 0.35 * same - 0.85 * inner - 1.0 * deeper
 
 
-def electronegativity(atomic_number: int) -> float:
-    """Allred-Rochow electronegativity (eV, Mulliken-like scale).
+def pauling_electronegativity(atomic_number: int) -> float:
+    """Allred-Rochow electronegativity on the (Pauling-like) chi scale.
 
-    chi_AR = 0.359 * Zeff / r^2 + 0.744 on the Pauling scale, using the
-    Slater effective charge and the Pyykko covalent radius, then converted
-    to an energy scale for the QEq charge solve.
+    chi_AR = 0.359 * Zeff / r^2 + 0.744, from the Slater effective charge and
+    the Pyykko covalent radius — derived, like every PMEFF parameter, from the
+    atomic number alone. Used both for the QEq charge solve (after conversion
+    to an energy scale) and for the polar-bond length contraction.
     """
     r = covalent_radius(atomic_number)
-    chi_pauling = 0.359 * slater_zeff(atomic_number) / (r * r) + 0.744
-    return _CHI_EV_PER_PAULING * chi_pauling
+    return 0.359 * slater_zeff(atomic_number) / (r * r) + 0.744
+
+
+def electronegativity(atomic_number: int) -> float:
+    """Allred-Rochow electronegativity converted to the QEq energy (eV) scale."""
+    return _CHI_EV_PER_PAULING * pauling_electronegativity(atomic_number)
 
 
 def hardness(atomic_number: int) -> float:
@@ -779,6 +833,7 @@ def build_topology(
     use_morse: bool = False,
     use_dispersion: bool = False,
     use_hbond: bool = False,
+    use_polar_contraction: bool = True,
 ) -> Topology:
     """Assemble a :class:`Topology` from connectivity alone.
 
@@ -812,6 +867,10 @@ def build_topology(
             alongside the LJ pair list. Requires *coords* and *vdw_cutoff*.
         use_hbond: When True and *coords* are provided, detect D−H···A triplets
             (donors/acceptors N, O, F, S) and store them for the H-bond term.
+        use_polar_contraction: When True (default), shorten polar bond rest
+            lengths by the electronegativity-difference contraction
+            (:func:`bond_rest_length`); when False, use the plain covalent
+            radius sum.
     """
     n = len(atomic_numbers)
     neighbors: List[set] = [set() for _ in range(n)]
@@ -837,7 +896,6 @@ def build_topology(
         if key in seen_bonds:
             continue
         seen_bonds.add(key)
-        r0 = covalent_radius(atomic_numbers[i]) + covalent_radius(atomic_numbers[j])
         order = 1.0
         if bond_orders is not None and b_idx < len(bond_orders):
             try:
@@ -845,7 +903,13 @@ def build_topology(
             except (TypeError, ValueError):
                 order = 1.0
         order_by_pair[key] = order
-        r0 *= bond_order_factor(order)
+        z_i, z_j = atomic_numbers[i], atomic_numbers[j]
+        if use_polar_contraction:
+            r0 = bond_rest_length(z_i, z_j, order)
+        else:
+            r0 = (covalent_radius(z_i) + covalent_radius(z_j)) * bond_order_factor(
+                order
+            )
         # Stretching stiffness grows roughly linearly with bond order
         # (C=C is ~2x, C#C ~3x as stiff as C-C).
         topo.bonds.append((key[0], key[1], r0, _K_BOND * order))
@@ -1764,13 +1828,16 @@ def topology_from_rdkit(
     use_morse: bool = False,
     use_dispersion: bool = False,
     use_hbond: bool = False,
+    use_polar_contraction: bool = True,
 ) -> Topology:
     """Build a :class:`Topology` from an RDKit molecule's connectivity.
 
     With *electronic_effects* enabled, QEq partial charges are derived from
     the conformer geometry (adding a shielded Coulomb term), 4-coordinate d8
     metal centers get square-planar angle targets, and 6-coordinate d-block
-    transition metals get octahedral targets.
+    transition metals get octahedral targets. *use_polar_contraction* (default
+    True) shortens polar bond rest lengths by the electronegativity-difference
+    contraction.
     """
     atomic_numbers = [atom.GetAtomicNum() for atom in mol.GetAtoms()]
     bond_pairs = [
@@ -1808,6 +1875,7 @@ def topology_from_rdkit(
         use_morse=use_morse,
         use_dispersion=use_dispersion,
         use_hbond=use_hbond,
+        use_polar_contraction=use_polar_contraction,
     )
     if charges is not None:
         # Mark the charges as dynamic: the optimizer re-solves them as the
@@ -1845,6 +1913,7 @@ def compute_energy_components(
     use_morse: bool = False,
     use_dispersion: bool = False,
     use_hbond: bool = False,
+    use_polar_contraction: bool = True,
 ) -> Optional[Dict[str, float]]:
     """Return the per-term PMEFF energy decomposition of *mol*, or None.
 
@@ -1857,6 +1926,7 @@ def compute_energy_components(
     topo = topology_from_rdkit(
         mol, electronic_effects=electronic_effects,
         use_morse=use_morse, use_dispersion=use_dispersion, use_hbond=use_hbond,
+        use_polar_contraction=use_polar_contraction,
     )
     return energy_components(coords, topo)
 
@@ -1867,6 +1937,7 @@ def check_minimum(
     use_morse: bool = False,
     use_dispersion: bool = False,
     use_hbond: bool = False,
+    use_polar_contraction: bool = True,
 ) -> Optional[Dict[str, Any]]:
     """Run a vibrational analysis on *mol*'s current conformer.
 
@@ -1881,6 +1952,7 @@ def check_minimum(
     topo = topology_from_rdkit(
         mol, electronic_effects=electronic_effects,
         use_morse=use_morse, use_dispersion=use_dispersion, use_hbond=use_hbond,
+        use_polar_contraction=use_polar_contraction,
     )
     return vibrational_analysis(coords, topo)
 
@@ -1893,6 +1965,7 @@ def optimize_rdkit_mol(
     use_morse: bool = False,
     use_dispersion: bool = False,
     use_hbond: bool = False,
+    use_polar_contraction: bool = True,
 ) -> Tuple[bool, Optional[OptimizeResult]]:
     """Optimize an RDKit molecule's conformer in place with PMEFF.
 
@@ -1911,6 +1984,7 @@ def optimize_rdkit_mol(
     topo = topology_from_rdkit(
         mol, electronic_effects=electronic_effects,
         use_morse=use_morse, use_dispersion=use_dispersion, use_hbond=use_hbond,
+        use_polar_contraction=use_polar_contraction,
     )
     new_coords, result = optimize(coords, topo, max_iter=max_iter, f_tol=f_tol)
 

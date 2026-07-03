@@ -57,6 +57,10 @@ _DEFAULT_SETTINGS = {
     # BJ-damped C6/r^6 dispersion on top of LJ. Off by default (can be slow
     # for large molecules with many non-bonded pairs).
     "dispersion": False,
+    # Electronegativity-difference shortening of polar bond rest lengths
+    # (fixes over-long Si-O, P-O, metal-oxide and C-F bonds; organic bonds
+    # are left untouched). On by default.
+    "polar_contraction": True,
 }
 
 logger = logging.getLogger(__name__)
@@ -103,6 +107,7 @@ def _settings_kwargs() -> dict:
         "use_morse": bool(s.get("morse_bonds", True)),
         "use_hbond": bool(s.get("hbond", True)),
         "use_dispersion": bool(s.get("dispersion", False)),
+        "use_polar_contraction": bool(s.get("polar_contraction", True)),
     }
 
 
