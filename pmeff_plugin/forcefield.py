@@ -1047,41 +1047,67 @@ class OptimizeResult:
     max_force: float
 
 
-def optimize(
-    coords: np.ndarray,
-    topo: Topology,
-    max_iter: int = 500,
-    f_tol: float = 1e-3,
-    max_step: float = 0.20,
-) -> Tuple[np.ndarray, OptimizeResult]:
-    """Minimize the PMEFF energy of *coords* using the FIRE 2.0 algorithm.
+# FIRE hands over to L-BFGS once the largest per-atom force drops below this
+# value: FIRE is robust through clashes and rearrangements, L-BFGS converges
+# superlinearly in the near-quadratic basin where FIRE crawls.
+_LBFGS_CROSSOVER = 1.0
+_LBFGS_HISTORY = 10       # stored (s, y) curvature pairs
+_LBFGS_ARMIJO = 1e-4      # sufficient-decrease constant for the line search
+_LBFGS_MAX_BACKTRACKS = 20
 
-    FIRE (Fast Inertial Relaxation Engine) is a robust, gradient-only optimizer
-    that needs no external solver. This implements the FIRE 2.0 refinements
-    (Guenole et al., 2020): on an uphill step the half-step that crossed the
-    crest is retracted before the velocity reset, the timestep has a floor so
-    repeated resets cannot stall progress, and the velocity mixing follows the
-    semi-implicit Euler update. A per-atom displacement clamp (*max_step*)
-    keeps it stable regardless of the absolute force-constant scale.
 
-    When *topo* was built with a vdW cutoff, the LJ pair list is treated as a
-    Verlet list: whenever any atom has drifted more than half the list skin
-    since the list was last valid, :func:`refresh_vdw_pairs` rebuilds it, so
-    pairs moving into (or out of) the cutoff keep exact forces throughout.
+def _max_force(grad: np.ndarray) -> float:
+    """Largest per-atom force magnitude (forces = -grad, same norms)."""
+    return float(np.max(np.linalg.norm(grad, axis=1))) if len(grad) else 0.0
 
-    Args:
-        coords: Initial coordinates, shape (N, 3). Not modified in place.
-        topo: The force-field topology.
-        max_iter: Maximum FIRE iterations.
-        f_tol: Convergence threshold on the largest per-atom force magnitude.
-        max_step: Maximum distance (Angstrom) any atom may move in one step.
 
-    Returns:
-        (optimized_coords, OptimizeResult).
+class _RefreshTracker:
+    """Rebuilds geometry-dependent pair data when atoms drift past skin/2.
+
+    Covers both the Verlet LJ list (cutoff topologies) and the QEq charges
+    (dynamic-charge topologies). Calling the tracker with the current
+    coordinates returns True when the pair data was rebuilt — i.e. the
+    energy surface changed and any cached curvature information is stale.
     """
-    x = np.array(coords, dtype=float)
-    v = np.zeros_like(x)
 
+    def __init__(self, topo: Topology, x: np.ndarray):
+        self._topo = topo
+        active = topo.excluded_pairs is not None and (
+            topo.vdw_cutoff is not None or topo.qeq_total_charge is not None
+        )
+        self._x_ref = x.copy() if (active and len(x)) else None
+
+    def __call__(self, x: np.ndarray) -> bool:
+        if self._x_ref is None:
+            return False
+        drift = float(np.max(np.linalg.norm(x - self._x_ref, axis=1)))
+        if drift <= 0.5 * _VDW_SKIN_A:
+            return False
+        refresh_vdw_pairs(self._topo, x)
+        refresh_qeq_charges(self._topo, x)
+        self._x_ref = x.copy()
+        return True
+
+
+def _fire_phase(
+    x: np.ndarray,
+    topo: Topology,
+    refresh: _RefreshTracker,
+    energy: float,
+    grad: np.ndarray,
+    budget: int,
+    stop_force: float,
+    max_step: float,
+) -> Tuple[np.ndarray, float, np.ndarray, int]:
+    """FIRE 2.0 iterations until max force < *stop_force* or budget is spent.
+
+    Implements the Guenole et al. (2020) refinements: on an uphill step, half
+    of the last applied (clamped) step is retracted before the velocity reset
+    — using the clamped displacement, not dt*v, keeps the retraction bounded
+    when forces were huge — and mixing follows the semi-implicit Euler
+    update. Returns (x, energy, grad, steps_used).
+    """
+    v = np.zeros_like(x)
     # FIRE 2.0 tuning constants (Bitzek et al. 2006; Guenole et al. 2020).
     dt = 0.1
     dt_max = 0.5
@@ -1100,22 +1126,12 @@ def optimize(
     steps_since_neg = 0
     dx = np.zeros_like(x)  # last applied (clamped) displacement
 
-    # Verlet-list bookkeeping: x_ref is where the pair data was last valid
-    # (the LJ list, and the QEq charges when they are dynamic).
-    track_pairs = topo.excluded_pairs is not None and (
-        topo.vdw_cutoff is not None or topo.qeq_total_charge is not None
-    )
-    x_ref = x.copy() if track_pairs else None
-    half_skin = 0.5 * _VDW_SKIN_A
-
-    energy, grad = energy_and_gradient(x, topo)
-    forces = -grad
-    max_force = float(np.max(np.linalg.norm(forces, axis=1))) if len(x) else 0.0
-
-    step = 0
-    for step in range(1, max_iter + 1):
-        if max_force < f_tol:
-            return x, OptimizeResult(True, energy, step - 1, max_force)
+    steps = 0
+    while steps < budget:
+        if _max_force(grad) < stop_force:
+            break
+        steps += 1
+        forces = -grad
 
         power = float(np.sum(forces * v))
         if power > 0.0:
@@ -1124,10 +1140,6 @@ def optimize(
                 dt = min(dt * f_inc, dt_max)
                 alpha *= f_alpha
         else:
-            # FIRE 2.0 correction: retract half of the last applied step (the
-            # one that went uphill), so the restart begins at the crest
-            # rather than beyond it. Using the clamped displacement — not
-            # dt * v — keeps the retraction bounded when forces were huge.
             x = x - 0.5 * dx
             v[:] = 0.0
             dt = max(dt * f_dec, dt_min)
@@ -1148,20 +1160,175 @@ def optimize(
             dx *= max_step / largest
         x = x + dx
 
-        if track_pairs:
-            drift = float(np.max(np.linalg.norm(x - x_ref, axis=1)))
-            if drift > half_skin:
-                refresh_vdw_pairs(topo, x)
-                refresh_qeq_charges(topo, x)
-                x_ref = x.copy()
-
+        refresh(x)
         energy, grad = energy_and_gradient(x, topo)
-        forces = -grad
-        max_force = (
-            float(np.max(np.linalg.norm(forces, axis=1))) if len(x) else 0.0
-        )
 
-    return x, OptimizeResult(max_force < f_tol, energy, step, max_force)
+    return x, energy, grad, steps
+
+
+def _lbfgs_phase(
+    x: np.ndarray,
+    topo: Topology,
+    refresh: _RefreshTracker,
+    energy: float,
+    grad: np.ndarray,
+    budget: int,
+    f_tol: float,
+    max_step: float,
+) -> Tuple[np.ndarray, float, np.ndarray, int]:
+    """L-BFGS iterations until max force < *f_tol*, stall, or spent budget.
+
+    Two-loop recursion over the last :data:`_LBFGS_HISTORY` curvature pairs,
+    an Armijo backtracking line search, the same per-atom displacement clamp
+    as FIRE, and a curvature-history reset whenever the refresh tracker
+    rebuilds the pair data (the quadratic model no longer matches the
+    surface). A failed line search returns early — the caller falls back to
+    FIRE. Returns (x, energy, grad, steps_used).
+    """
+    s_hist: List[np.ndarray] = []
+    y_hist: List[np.ndarray] = []
+    rho: List[float] = []
+
+    steps = 0
+    while steps < budget:
+        if _max_force(grad) < f_tol:
+            break
+        steps += 1
+
+        # Two-loop recursion: q becomes the quasi-Newton direction H^-1 g.
+        q = grad.ravel().copy()
+        alphas: List[float] = []
+        for s, y, r in zip(
+            reversed(s_hist), reversed(y_hist), reversed(rho)
+        ):
+            a = r * float(s @ q)
+            alphas.append(a)
+            q -= a * y
+        if y_hist:
+            y_last = y_hist[-1]
+            q *= float(s_hist[-1] @ y_last) / float(y_last @ y_last)
+        else:
+            # First step: steepest descent, normalized to unit total length.
+            q /= max(float(np.linalg.norm(q)), 1e-12)
+        for (s, y, r), a in zip(
+            zip(s_hist, y_hist, rho), reversed(alphas)
+        ):
+            b = r * float(y @ q)
+            q += s * (a - b)
+        d = -q.reshape(x.shape)
+
+        g_dot_d = float(np.sum(grad * d))
+        if g_dot_d >= 0.0:
+            # Not a descent direction (stale curvature): restart from
+            # steepest descent.
+            s_hist.clear()
+            y_hist.clear()
+            rho.clear()
+            d = -grad
+            g_dot_d = -float(np.sum(grad * grad))
+
+        # Per-atom displacement clamp (scaling d scales the directional
+        # derivative by the same factor).
+        step_norms = np.linalg.norm(d, axis=1)
+        largest = float(np.max(step_norms)) if len(step_norms) else 0.0
+        if largest > max_step:
+            scale = max_step / largest
+            d *= scale
+            g_dot_d *= scale
+
+        # Armijo backtracking line search.
+        t = 1.0
+        for _ in range(_LBFGS_MAX_BACKTRACKS):
+            x_new = x + t * d
+            e_new, g_new = energy_and_gradient(x_new, topo)
+            if e_new <= energy + _LBFGS_ARMIJO * t * g_dot_d:
+                break
+            t *= 0.5
+        else:
+            break  # line search stalled — hand back to the caller
+
+        s_vec = (x_new - x).ravel()
+        y_vec = (g_new - grad).ravel()
+        sy = float(s_vec @ y_vec)
+        if sy > 1e-12:  # keep the inverse-Hessian model positive definite
+            s_hist.append(s_vec)
+            y_hist.append(y_vec)
+            rho.append(1.0 / sy)
+            if len(s_hist) > _LBFGS_HISTORY:
+                s_hist.pop(0)
+                y_hist.pop(0)
+                rho.pop(0)
+        x, energy, grad = x_new, e_new, g_new
+
+        if refresh(x):
+            # The pair data changed under us: the stored curvature describes
+            # the old surface, so drop it and re-evaluate.
+            s_hist.clear()
+            y_hist.clear()
+            rho.clear()
+            energy, grad = energy_and_gradient(x, topo)
+
+    return x, energy, grad, steps
+
+
+def optimize(
+    coords: np.ndarray,
+    topo: Topology,
+    max_iter: int = 500,
+    f_tol: float = 1e-3,
+    max_step: float = 0.20,
+) -> Tuple[np.ndarray, OptimizeResult]:
+    """Minimize the PMEFF energy of *coords*: FIRE 2.0, then L-BFGS.
+
+    FIRE (Fast Inertial Relaxation Engine) handles the far-from-minimum
+    regime — it is robust through steric clashes and large rearrangements —
+    and hands over to an L-BFGS finisher once the largest per-atom force
+    drops below :data:`_LBFGS_CROSSOVER`, where the quasi-Newton model
+    converges superlinearly instead of FIRE's slow inertial crawl. If the
+    L-BFGS line search stalls (e.g. on a kink in the surface), FIRE resumes
+    with the remaining budget.
+
+    Throughout both phases, geometry-dependent pair data (the Verlet LJ list
+    and, for dynamic-charge topologies, the QEq charges) is refreshed
+    whenever any atom has drifted more than half the list skin.
+
+    Args:
+        coords: Initial coordinates, shape (N, 3). Not modified in place.
+        topo: The force-field topology.
+        max_iter: Total iteration budget across all phases.
+        f_tol: Convergence threshold on the largest per-atom force magnitude.
+        max_step: Maximum distance (Angstrom) any atom may move in one step.
+
+    Returns:
+        (optimized_coords, OptimizeResult).
+    """
+    x = np.array(coords, dtype=float)
+    refresh = _RefreshTracker(topo, x)
+    energy, grad = energy_and_gradient(x, topo)
+
+    steps = 0
+    budget = max_iter
+    x, energy, grad, used = _fire_phase(
+        x, topo, refresh, energy, grad, budget,
+        max(_LBFGS_CROSSOVER, f_tol), max_step,
+    )
+    steps += used
+    budget -= used
+    if budget > 0 and _max_force(grad) >= f_tol:
+        x, energy, grad, used = _lbfgs_phase(
+            x, topo, refresh, energy, grad, budget, f_tol, max_step
+        )
+        steps += used
+        budget -= used
+    if budget > 0 and _max_force(grad) >= f_tol:
+        # L-BFGS stalled: finish with FIRE, now targeting f_tol directly.
+        x, energy, grad, used = _fire_phase(
+            x, topo, refresh, energy, grad, budget, f_tol, max_step
+        )
+        steps += used
+
+    max_force = _max_force(grad)
+    return x, OptimizeResult(max_force < f_tol, energy, steps, max_force)
 
 
 # --- RDKit boundary ---------------------------------------------------------

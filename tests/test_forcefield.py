@@ -643,6 +643,29 @@ def test_optimize_flattens_pyramidal_sp2_center():
     assert height < 0.05
 
 
+def test_optimizer_reaches_tight_convergence():
+    # The L-BFGS finisher must reach tolerances where inertial FIRE crawls:
+    # a nontrivial molecule down to |F|max < 1e-8 within a modest budget.
+    topo = _ethane_topology()
+    rng = np.random.default_rng(5)
+    coords = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.54, 0.0, 0.0],
+            [-0.4, 1.0, 0.0],
+            [-0.4, -0.5, 0.9],
+            [-0.4, -0.5, -0.9],
+            [1.94, 1.0, 0.1],
+            [1.94, -0.5, 0.9],
+            [1.94, -0.5, -0.9],
+        ]
+    ) + rng.normal(scale=0.05, size=(8, 3))
+    out, result = ff.optimize(coords, topo, max_iter=500, f_tol=1e-8)
+    assert result.converged
+    assert result.max_force < 1e-8
+    assert np.all(np.isfinite(out))
+
+
 def test_optimize_lowers_energy():
     topo = ff.build_topology(
         [6, 6, 6, 6], [(0, 1), (1, 2), (2, 3)], None
