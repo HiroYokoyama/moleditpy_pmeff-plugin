@@ -11,11 +11,16 @@ from __future__ import annotations
 from typing import Optional
 
 
-def open_settings_dialog(parent: object, current: dict) -> Optional[dict]:
+def open_settings_dialog(
+    parent: object, current: dict, defaults: Optional[dict] = None
+) -> Optional[dict]:
     """Show the PMEFF settings dialog on top of *parent*.
 
     Returns the updated settings dict when the user clicks OK, or None if
     they cancel or if PyQt6 is not available (headless environment).
+
+    *defaults* supplies the values the "Restore Defaults" button resets each
+    option to; when omitted, the dialog's own per-option defaults are used.
     """
     try:
         from PyQt6.QtWidgets import (  # type: ignore[import]
@@ -46,6 +51,7 @@ def open_settings_dialog(parent: object, current: dict) -> Optional[dict]:
     layout.addWidget(intro)
 
     checks: dict[str, QCheckBox] = {}
+    option_defaults: dict[str, bool] = {}
 
     def _add(key: str, label: str, desc: str, default: bool = True) -> None:
         cb = QCheckBox(label)
@@ -57,6 +63,7 @@ def open_settings_dialog(parent: object, current: dict) -> Optional[dict]:
         layout.addWidget(cb)
         layout.addWidget(lbl)
         checks[key] = cb
+        option_defaults[key] = default
 
     _add(
         "electronic_effects",
@@ -108,9 +115,23 @@ def open_settings_dialog(parent: object, current: dict) -> Optional[dict]:
     buttons = QDialogButtonBox(
         QDialogButtonBox.StandardButton.Ok
         | QDialogButtonBox.StandardButton.Cancel
+        | QDialogButtonBox.StandardButton.RestoreDefaults
     )
     buttons.accepted.connect(dlg.accept)
     buttons.rejected.connect(dlg.reject)
+
+    # "Restore Defaults" resets every checkbox to its default (the caller-
+    # supplied *defaults*, falling back to each option's own default).
+    reset_to = {**option_defaults, **(defaults or {})}
+
+    def _restore_defaults() -> None:
+        for key, cb in checks.items():
+            cb.setChecked(bool(reset_to.get(key, True)))
+
+    restore_btn = buttons.button(
+        QDialogButtonBox.StandardButton.RestoreDefaults
+    )
+    restore_btn.clicked.connect(_restore_defaults)
     layout.addWidget(buttons)
 
     if dlg.exec() == QDialog.DialogCode.Accepted:

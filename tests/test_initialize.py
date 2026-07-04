@@ -105,6 +105,57 @@ def test_minimum_check_tool_handles_no_conformer():
     assert "no 3d" in msg.lower()
 
 
+def test_initialize_registers_save_handler_but_not_load():
+    ctx = make_context()
+    plugin.initialize(ctx)
+    # Write-only persistence: a save handler and a document-reset handler are
+    # registered, but deliberately no load handler.
+    ctx.register_save_handler.assert_called_once()
+    ctx.register_document_reset_handler.assert_called_once()
+    ctx.register_load_handler.assert_not_called()
+
+
+def test_save_handler_is_none_before_any_optimization():
+    plugin._last_opt_settings = None
+    ctx = make_context()
+    plugin.initialize(ctx)
+    save_cb = ctx.register_save_handler.call_args[0][0]
+    assert save_cb() == {"last_opt_settings": None}
+
+
+def test_save_handler_snapshots_last_optimization_settings():
+    plugin._last_opt_settings = None
+    ctx = make_context()
+    plugin.initialize(ctx)
+    optimize = ctx.register_optimization_method.call_args[0][1]
+    save_cb = ctx.register_save_handler.call_args[0][0]
+
+    assert optimize(_embed("CCO")) is True
+    snap = save_cb()["last_opt_settings"]
+    # The saved snapshot is the exact kwargs the run used.
+    assert snap == plugin._settings_kwargs()
+    assert set(snap) == {
+        "electronic_effects",
+        "use_morse",
+        "use_hbond",
+        "use_dispersion",
+        "use_polar_contraction",
+    }
+
+
+def test_document_reset_forgets_last_optimization():
+    ctx = make_context()
+    plugin.initialize(ctx)
+    optimize = ctx.register_optimization_method.call_args[0][1]
+    save_cb = ctx.register_save_handler.call_args[0][0]
+    reset_cb = ctx.register_document_reset_handler.call_args[0][0]
+
+    assert optimize(_embed("CCO")) is True
+    assert save_cb()["last_opt_settings"] is not None
+    reset_cb()
+    assert save_cb()["last_opt_settings"] is None
+
+
 def test_optimizer_callback_survives_engine_exception(monkeypatch):
     ctx = make_context()
     plugin.initialize(ctx)

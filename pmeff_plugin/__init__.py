@@ -27,7 +27,7 @@ import tempfile
 from pathlib import Path
 
 PLUGIN_NAME = "PMEFF Plugin"
-PLUGIN_VERSION = "1.0.3"
+PLUGIN_VERSION = "1.0.4"
 # Must equal the GitHub username (the moleditpy registry enforces this).
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
@@ -65,6 +65,13 @@ _DEFAULT_SETTINGS = {
 }
 
 logger = logging.getLogger(__name__)
+
+# The physics options used the last time PMEFF actually optimized the current
+# document, or None if it never has. Saved into (and restored from) the project
+# file, and cleared on File > New, so a project remembers what it was last
+# optimized with. This is a per-document record only; it does not override the
+# global settings.json read by _settings_kwargs().
+_last_opt_settings = None
 
 
 def load_settings() -> dict:
@@ -128,6 +135,24 @@ def initialize(context):
         lambda: _open_settings_dialog(context),
         text="PMEFF Settings…",
     )
+    # Persist the last-used optimization options with the project (save only).
+    context.register_save_handler(_save_project_state)
+    context.register_document_reset_handler(_reset_project_state)
+
+
+def _save_project_state() -> dict:
+    """Return the physics options of the last PMEFF optimization for the project.
+
+    Stored per document in the ``.pmeprj`` file; ``last_opt_settings`` is None
+    when PMEFF has not optimized this document yet.
+    """
+    return {"last_opt_settings": _last_opt_settings}
+
+
+def _reset_project_state() -> None:
+    """Forget the last-optimization snapshot on File > New."""
+    global _last_opt_settings
+    _last_opt_settings = None
 
 
 def _open_settings_dialog(context) -> None:
@@ -136,7 +161,7 @@ def _open_settings_dialog(context) -> None:
 
     parent = getattr(context, "main_window", None)
     current = load_settings()
-    updated = open_settings_dialog(parent, current)
+    updated = open_settings_dialog(parent, current, defaults=_DEFAULT_SETTINGS)
     if updated is None:
         return  # cancelled or headless
     # Merge: preserve unknown keys the dialog doesn't know about.
@@ -149,10 +174,9 @@ def _optimize(mol, context) -> bool:
     """Relax *mol* in place with PMEFF. Returns True on success."""
     from .forcefield import optimize_rdkit_mol
 
+    kwargs = _settings_kwargs()
     try:
-        success, result = optimize_rdkit_mol(
-            mol, max_iter=_MAX_ITER, **_settings_kwargs()
-        )
+        success, result = optimize_rdkit_mol(mol, max_iter=_MAX_ITER, **kwargs)
     except Exception as exc:  # pragma: no cover - defensive GUI guard
         logger.exception("PMEFF optimization failed")
         _status(context, f"PMEFF optimization failed: {exc}", 5000)
@@ -161,6 +185,10 @@ def _optimize(mol, context) -> bool:
     if not success:
         _status(context, "PMEFF: no 3D geometry to optimize.", 4000)
         return False
+
+    # Record the options this successful run used, for project persistence.
+    global _last_opt_settings
+    _last_opt_settings = kwargs
 
     if result is not None:
         state = "converged" if result.converged else "stopped (max iterations)"
