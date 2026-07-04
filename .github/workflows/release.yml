@@ -60,6 +60,7 @@ jobs:
 
       - name: Build plugin zip
         run: |
+          cp README.md LICENSE pmeff_plugin/
           zip -r "pmeff_plugin_${VERSION}.zip" pmeff_plugin/ \
             --exclude "*/__pycache__/*" "*/.git/*" "*/settings.json"
 
