@@ -141,6 +141,27 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # Generate PEP 740 digital attestations (the default under Trusted
+          # Publishing). They are written next to the distributions in dist/
+          # as <distribution>.publish.attestation and uploaded to PyPI.
+          attestations: true
+
+      - name: Attach PEP 740 attestations to the GitHub Release
+        # The .publish.attestation files the publish step produced in dist/ are
+        # the signed provenance for each wheel/sdist; attach them to the Release
+        # so they travel with the GitHub artifacts too, not only PyPI.
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          shopt -s nullglob
+          attestations=(dist/*.publish.attestation)
+          if [ ${#attestations[@]} -eq 0 ]; then
+            echo "No .publish.attestation files were produced; skipping."
+            exit 0
+          fi
+          gh release upload "v${VERSION}" "${attestations[@]}" --clobber
 
   sync-back:
     name: Commit synced package files back to main
