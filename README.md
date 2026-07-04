@@ -1,13 +1,14 @@
-﻿# PMEFF 窶・Python Molecular Editor Force Field
+# PMEFF — Python Molecular Editor Force Field
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21151897.svg)](https://doi.org/10.5281/zenodo.21151897)
 [![Tests](https://github.com/HiroYokoyama/moleditpy_pmeff-plugin/actions/workflows/test.yml/badge.svg)](https://github.com/HiroYokoyama/moleditpy_pmeff-plugin/actions/workflows/test.yml)
 [![PyPI](https://img.shields.io/pypi/v/pmeff.svg)](https://pypi.org/project/pmeff/)
 [![Downloads](https://img.shields.io/github/downloads/HiroYokoyama/moleditpy_pmeff-plugin/total)](https://github.com/HiroYokoyama/moleditpy_pmeff-plugin/releases)
 
+
 A [MoleditPy](https://github.com/HiroYokoyama/python_molecular_editor) plugin that
 adds **PMEFF**, a self-contained *universal* molecular force field covering the
-**entire periodic table** (Z = 1 窶・118). It needs no external QM binary 窶・just
+**entire periodic table** (Z = 1 – 118). It needs no external QM binary — just
 `numpy` and `rdkit`.
 
 ## Why another force field?
@@ -17,7 +18,7 @@ organic chemistry but leave gaps: MMFF94 only parameterizes a fixed subset of
 main-group elements, and even UFF-style tables are hand-tuned per element.
 
 PMEFF takes a different approach. Every parameter is **derived from a single
-per-element property** 窶・the Pyykkﾃｶ single-bond covalent radius 窶・so *no element
+per-element property** — the Pyykkö single-bond covalent radius — so *no element
 is ever missing a parameter*. Drop in a lanthanide, an actinide, a transition
 metal, or a superheavy element and PMEFF still produces a sensible geometry.
 
@@ -30,106 +31,106 @@ Once installed, PMEFF registers:
 | **PMEFF** | Right-click the *Optimize 3D* button | Relaxes the current 3D geometry with a dependency-free FIRE 2.0 + L-BFGS optimizer. |
 | **PMEFF Single-Point Energy** | *Analysis* menu | Reports the force-field energy (with per-term decomposition) without modifying the geometry. |
 | **PMEFF Minimum Check (Vibrational)** | *Analysis* menu | Diagonalizes the Hessian at the current geometry and reports whether it is a true minimum or a saddle point. |
-| **PMEFF Settings窶ｦ** | *Settings 竊・PMEFF Setting* menu | Opens a dialog to toggle individual physics options (persisted to `settings.json`). |
+| **PMEFF Settings…** | *Settings → PMEFF Setting* menu | Opens a dialog to toggle individual physics options (persisted to `settings.json`). |
 
 > **Scope:** PMEFF is a pre-DFT *geometry-cleanup* force field. Its goal is
-> **initial structure preparation** 窶・removing clashes, correcting bond lengths,
+> **initial structure preparation** — removing clashes, correcting bond lengths,
 > angles and torsions, and placing metal centers in the right coordination
 > geometry. It is not designed for high-accuracy thermochemistry. For accurate
 > energies, pair it with the ORCA or PySCF plugins.
 
 ## The physics
 
-For the full specification 窶・functional forms, parameter derivations,
-gradient formulas, non-bonded bookkeeping and the optimizer 窶・see the
+For the full specification — functional forms, parameter derivations,
+gradient formulas, non-bonded bookkeeping and the optimizer — see the
 [technical reference](docs/TECHNICAL.md). In brief, PMEFF has these energy terms:
 
-- **Bonds** 窶・by default **Morse potential** `D(1 竏・e^{竏槻ｱ ﾎ排})ﾂｲ` (bounded above
+- **Bonds** — by default **Morse potential** `D(1 − e^{−α Δr})²` (bounded above
   at the dissociation energy D; same curvature as harmonic at the minimum). The
-  harmonic `ﾂｽﾂｷkﾂｷ(r 竏・r竄)ﾂｲ` is available as a fallback. Rest lengths and force
+  harmonic `½·k·(r − r₀)²` is available as a fallback. Rest lengths and force
   constants follow the same covalent-radius rules in both cases, with a
   **polar-bond contraction** (a capped, quadratic function of the
   electronegativity difference) that pulls in bonds the plain radius sum leaves
-  too long 窶・Si窶徹 1.79竊・.63 ﾃ・ P=O, B窶徹, the metal-oxides and C窶擢 窶・while
-  leaving organic C窶鼎/C窶徹/C窶哲/C窶滴 unchanged. Toggleable in settings.
-- **Angles** 窶・harmonic in the bend angle, `ﾂｽﾂｷkﾂｷ(ﾎｸ 竏・ﾎｸ竄)ﾂｲ`, with the ideal angle
-  `ﾎｸ竄` inferred from the central atom's hybridization (falling back to its
+  too long — Si–O 1.79→1.63 Å, P=O, B–O, the metal-oxides and C–F — while
+  leaving organic C–C/C–O/C–N/C–H unchanged. Toggleable in settings.
+- **Angles** — harmonic in the bend angle, `½·k·(θ − θ₀)²`, with the ideal angle
+  `θ₀` inferred from the central atom's hybridization (falling back to its
   coordination number for metals and other cases where hybridization is
-  ambiguous). spﾂｳ pnictogens and chalcogens are compressed below tetrahedral
-  by their lone pairs (`4 竏・coordination` of them): mildly for period-2 atoms
-  (NH竄・竕・107ﾂｰ, H竄０ 竕・104.5ﾂｰ), strongly for heavier congeners that bond through
-  near-pure p orbitals (H竄４/PH竄・竕・93ﾂｰ). The period-2 compression is calibrated
+  ambiguous). sp³ pnictogens and chalcogens are compressed below tetrahedral
+  by their lone pairs (`4 − coordination` of them): mildly for period-2 atoms
+  (NH₃ ≈ 107°, H₂O ≈ 104.5°), strongly for heavier congeners that bond through
+  near-pure p orbitals (H₂S/PH₃ ≈ 93°). The period-2 compression is calibrated
   on hydrides and opens back toward tetrahedral for bulkier substituents
-  (dimethyl ether's C-O-C 竕・110ﾂｰ, not 104.5ﾂｰ). Two more special cases: in-ring angles
+  (dimethyl ether's C-O-C ≈ 110°, not 104.5°). Two more special cases: in-ring angles
   of three-membered rings take their target from the law of cosines over the
-  bond rest lengths (60ﾂｰ in cyclopropane), so bonds and angles share one
-  minimum; and linear sp centers use `kﾂｷ(1 + cos ﾎｸ)`, which matches the
-  harmonic curvature at 180ﾂｰ but keeps the gradient finite at the linear
+  bond rest lengths (60° in cyclopropane), so bonds and angles share one
+  minimum; and linear sp centers use `k·(1 + cos θ)`, which matches the
+  harmonic curvature at 180° but keeps the gradient finite at the linear
   minimum.
-- **Torsions** 窶・a cosine dihedral potential `ﾂｽﾂｷVﾂｷ(1 + cos(nﾂｷﾏ・竏・ﾎｳ))`: 2-fold
-  for spﾂｲ窶都pﾂｲ bonds (keeps double bonds and conjugated systems planar), 3-fold
-  for spﾂｳ窶都pﾂｳ bonds (staggered minima), and a weak 6-fold term for mixed
-  spﾂｲ窶都pﾂｳ bonds. The per-bond barrier is split evenly over all dihedrals
+- **Torsions** — a cosine dihedral potential `½·V·(1 + cos(n·φ − γ))`: 2-fold
+  for sp²–sp² bonds (keeps double bonds and conjugated systems planar), 3-fold
+  for sp³–sp³ bonds (staggered minima), and a weak 6-fold term for mixed
+  sp²–sp³ bonds. The per-bond barrier is split evenly over all dihedrals
   sharing the bond, UFF-style, so it doesn't grow with substitution, and the
-  2-fold barrier scales with the ﾏ character of the central bond 窶・full for a
+  2-fold barrier scales with the π character of the central bond — full for a
   double bond, reduced for aromatic, weak for a conjugated single bond, so
   biphenyl can twist while ethylene stays rigid.
-- **Out-of-plane** 窶・a harmonic penalty on the pyramidalization of
-  3-coordinate spﾂｲ centers, expressed through the sum of the three bend angles
-  around the center (planar 竍・360ﾂｰ).
-- **van der Waals** 窶・a Lennard-Jones 12-6 term whose per-atom radius is the
-  covalent radius plus a fixed 0.90 ﾃ・offset. This reproduces the tabulated vdW
-  radii of the common elements to within ~0.05 ﾃ・(C 竊・1.65 ﾃ・vs. 1.70 ﾃ・
-  O 竊・1.53 ﾃ・vs. 1.52 ﾃ・ H 竊・1.22 ﾃ・vs. 1.20 ﾃ・. Well depths are derived per
+- **Out-of-plane** — a harmonic penalty on the pyramidalization of
+  3-coordinate sp² centers, expressed through the sum of the three bend angles
+  around the center (planar ⇔ 360°).
+- **van der Waals** — a Lennard-Jones 12-6 term whose per-atom radius is the
+  covalent radius plus a fixed 0.90 Å offset. This reproduces the tabulated vdW
+  radii of the common elements to within ~0.05 Å (C → 1.65 Å vs. 1.70 Å,
+  O → 1.53 Å vs. 1.52 Å, H → 1.22 Å vs. 1.20 Å). Well depths are derived per
   atom from the covalent radius as a polarizability proxy (carbon anchors the
-  scale) and combined with the Lorentz窶釘erthelot geometric mean. 1-2 and 1-3
+  scale) and combined with the Lorentz–Berthelot geometric mean. 1-2 and 1-3
   pairs are excluded; 1-4 pairs get the conventional half well depth.
 
 ### Optional physics terms
 
-**Settings 竊・PMEFF Setting** opens a dialog. All settings are persisted in
+**Settings → PMEFF Setting** opens a dialog. All settings are persisted in
 `pmeff_plugin/settings.json`. The optional terms (defaults shown) are:
 
-- **Electronic effects** *(on)* 窶・QEq partial charges from Slater Zeff and
-  Allred窶迭ochow electronegativities feed a shielded Coulomb term; charges are
+- **Electronic effects** *(on)* — QEq partial charges from Slater Zeff and
+  Allred–Rochow electronegativities feed a shielded Coulomb term; charges are
   re-solved as the geometry relaxes (envelope theorem keeps the gradient exact).
   Also enables square-planar angle targets for 4-coordinate Ni/Pd/Pt/Rh/Ir/Au
   and octahedral targets for 6-coordinate d-block transition metals; cis/trans
-  assignment is read from the starting geometry so tetrahedral Pdﾂｲ竅ｺ converges
+  assignment is read from the starting geometry so tetrahedral Pd²⁺ converges
   to square-planar.
-- **Morse bond stretching** *(on)* 窶・replaces harmonic bonds with the Morse
-  potential `D(1竏弾^{竏槻ｱ ﾎ排})ﾂｲ`; bounded above at D, same curvature at the
+- **Morse bond stretching** *(on)* — replaces harmonic bonds with the Morse
+  potential `D(1−e^{−α Δr})²`; bounded above at D, same curvature at the
   minimum. Improves robustness for severely distorted starting geometries at
   negligible computational cost.
-- **Hydrogen bond correction** *(on)* 窶・a geometry-dependent D竏辿ﾂｷﾂｷﾂｷA term
-  (donors/acceptors: N, O, F, S) with a 12-6 radial profile and cosﾂｲ(竏DHA)
+- **Hydrogen bond correction** *(on)* — a geometry-dependent D−H···A term
+  (donors/acceptors: N, O, F, S) with a 12-6 radial profile and cos²(∠DHA)
   angular dependence. Improves H-bond distances and linearity. Fast.
-- **Dispersion correction** *(off by default)* 窶・Becke-Johnson damped C竄・r竅ｶ
+- **Dispersion correction** *(off by default)* — Becke-Johnson damped C₆/r⁶
   London dispersion added on top of the LJ term. Improves aromatic stacking
   distances and hydrophobic contacts. Can slow optimization of large molecules.
 
 Lone pairs are not explicit particles, but their steric effect enters through
-the hybridization-derived angle targets: spﾂｳ N stays pyramidal, spﾂｳ O stays
-bent, and a conjugated (spﾂｲ) amide nitrogen stays planar.
+the hybridization-derived angle targets: sp³ N stays pyramidal, sp³ O stays
+bent, and a conjugated (sp²) amide nitrogen stays planar.
 
 Geometry optimization uses **FIRE 2.0** (Fast Inertial Relaxation Engine) for
 the far-from-minimum regime and hands over to an **L-BFGS finisher** in the
 quadratic basin, with a per-atom displacement clamp for stability and fully
-**analytical gradients** for all energy terms 窶・including the dihedral and
+**analytical gradients** for all energy terms — including the dihedral and
 Coulomb derivatives, which are verified against numeric differentiation in
 the test suite. All terms are evaluated with vectorized numpy over
 precompiled index arrays, so evaluation cost is dominated by numpy kernels
 rather than Python loops. The short-range van der Waals term is truncated at
-a 12 ﾃ・cutoff (electrostatics, being long-range, are not) with the pair list
+a 12 Å cutoff (electrostatics, being long-range, are not) with the pair list
 built by an O(N) cell-list search and maintained as a Verlet list during
 optimization; a CHARMM-style switching function tapers the LJ term to zero
-over the last 2 ﾃ・with zero slope at the cutoff, so both energy and force
+over the last 2 Å with zero slope at the cutoff, so both energy and force
 stay continuous as a pair crosses the boundary. A finite-difference Hessian
 over the analytic gradient powers the vibrational minimum check.
 
 > **Note:** PMEFF energies are in internal, consistent units meant for
 > **relative comparison and geometry guidance**, not thermochemistry. The goal is
-> to give the DFT optimizer a sensible starting geometry 窶・not to replace it.
+> to give the DFT optimizer a sensible starting geometry — not to replace it.
 
 ## Installation
 
@@ -139,11 +140,11 @@ directory:
 - **Windows:** `C:\Users\<YourName>\.moleditpy\plugins\`
 - **Linux / macOS:** `~/.moleditpy/plugins/`
 
-Then restart MoleditPy, or use **Plugins 竊・Reload All Plugins**.
+Then restart MoleditPy, or use **Plugins → Reload All Plugins**.
 
 ## Standalone Python package (`pmeff`)
 
-The force-field engine is also published on PyPI as **`pmeff`** 窶・the same
+The force-field engine is also published on PyPI as **`pmeff`** — the same
 physics, usable from any Python script without MoleditPy. The core has **no
 dependency beyond NumPy**; RDKit is an optional extra for the convenience layer.
 
@@ -152,7 +153,7 @@ pip install pmeff            # core: NumPy only
 pip install "pmeff[rdkit]"   # adds the RDKit convenience layer (optimize_mol)
 ```
 
-### With RDKit 窶・`Mol` in, relaxed `Mol` out
+### With RDKit — `Mol` in, relaxed `Mol` out
 
 The recommended path: hand it an RDKit molecule that has a 3D conformer, and get
 the **same molecule back with its geometry relaxed**. Connectivity, bond orders,
@@ -176,7 +177,7 @@ print(Chem.MolToXYZBlock(mol))                    # -> optimized coordinates
 (`electronic_effects`, `use_morse`, `use_hbond`, `use_dispersion`,
 `use_polar_contraction`) plus `max_iter` and `f_tol`.
 
-### Without RDKit 窶・plain arrays in, coordinates out
+### Without RDKit — plain arrays in, coordinates out
 
 For pipelines that don't use RDKit, describe the molecule with atomic numbers, a
 bond list and coordinates:
@@ -197,11 +198,12 @@ print(coords)                                      # optimized (N, 3) array
 ```
 
 Optional charges (`pmeff.qeq_charges(...)`), per-bond orders and hybridizations
-sharpen the result. The lower-level engine 窶・`build_topology`,
-`energy_and_gradient`, `energy_components`, `optimize`, `vibrational_analysis` 窶・is exported too for custom workflows.
+sharpen the result. The lower-level engine — `build_topology`,
+`energy_and_gradient`, `energy_components`, `optimize`, `vibrational_analysis` —
+is exported too for custom workflows.
 
-For the full programmatic guide 窶・every option, the low-level engine, worked
-recipes and an API reference 窶・see **[docs/USAGE.md](docs/USAGE.md)**.
+For the full programmatic guide — every option, the low-level engine, worked
+recipes and an API reference — see **[docs/USAGE.md](docs/USAGE.md)**.
 
 > The engine is a copy of `pmeff_plugin/forcefield.py` (the single source of
 > truth); see [PACKAGING.md](PACKAGING.md) for the build/release process.
@@ -220,7 +222,7 @@ pylint pmeff_plugin/
 ```
 
 The engine (`pmeff_plugin/forcefield.py`) is deliberately Qt-free and
-RDKit-free at its core 窶・it operates on a plain-number `Topology` 窶・which makes
+RDKit-free at its core — it operates on a plain-number `Topology` — which makes
 it fully unit-testable without a GUI. Only the thin boundary functions touch
 RDKit.
 
