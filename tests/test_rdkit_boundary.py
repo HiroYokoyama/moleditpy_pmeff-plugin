@@ -155,6 +155,60 @@ def test_lone_pair_centers_keep_their_shape():
     assert 100.0 < angle < 120.0
 
 
+def test_compute_energy_default_matches_components_total():
+    # The plain call must still be the bare-default single point: exactly the
+    # "total" of compute_energy_components with no switches flipped.
+    mol = _embed("CCO")
+    assert ff.compute_energy(mol) == pytest.approx(
+        ff.compute_energy_components(mol)["total"]
+    )
+
+
+@pytest.mark.parametrize(
+    "opts",
+    [
+        {"use_morse": True},
+        {"use_hbond": True},
+        {"use_dispersion": True},
+        {"use_polar_contraction": False},
+        {"electronic_effects": True},
+        {
+            "electronic_effects": True,
+            "use_morse": True,
+            "use_hbond": True,
+            "use_dispersion": True,
+            "use_polar_contraction": False,
+        },
+    ],
+)
+def test_compute_energy_forwards_physics_options(opts):
+    # Every switch compute_energy accepts must reach the force field: the
+    # result has to equal the "total" of components built with the same switches
+    # (regression against the old shim that only forwarded electronic_effects).
+    mol = _embed("OCCO")  # ethylene glycol: polar bonds + an H-bond donor/acceptor
+    assert ff.compute_energy(mol, **opts) == pytest.approx(
+        ff.compute_energy_components(mol, **opts)["total"]
+    )
+
+
+def test_compute_energy_morse_differs_from_harmonic():
+    # If use_morse were silently dropped (the old bug) the two calls would be
+    # identical; the Morse bond term must actually change the single point.
+    mol = _embed("CCO")
+    assert ff.compute_energy(mol, use_morse=True) != pytest.approx(
+        ff.compute_energy(mol, use_morse=False)
+    )
+
+
+def test_compute_energy_polar_contraction_changes_energy():
+    # A polar Si-O bond has its rest length contracted by default; turning the
+    # contraction off shifts the bond energy, so the single point must move.
+    mol = _embed("O[SiH3]")  # silanol
+    assert ff.compute_energy(mol, use_polar_contraction=True) != pytest.approx(
+        ff.compute_energy(mol, use_polar_contraction=False)
+    )
+
+
 def test_handles_transition_metal_complex():
     # Ferrocene-like iron center: PMEFF must parameterize Fe without gaps.
     mol = Chem.AddHs(Chem.MolFromSmiles("[Fe]"))
