@@ -200,6 +200,9 @@ sharpen the result. The lower-level engine — `build_topology`,
 `energy_and_gradient`, `energy_components`, `optimize`, `vibrational_analysis` —
 is exported too for custom workflows.
 
+For the full programmatic guide — every option, the low-level engine, worked
+recipes and an API reference — see **[docs/USAGE.md](docs/USAGE.md)**.
+
 > The engine is a copy of `pmeff_plugin/forcefield.py` (the single source of
 > truth); see [PACKAGING.md](PACKAGING.md) for the build/release process.
 
