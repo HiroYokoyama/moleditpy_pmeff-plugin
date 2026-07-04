@@ -260,6 +260,29 @@ energy, grad = energy_and_gradient(coords, topo)   # grad has shape (N, 3)
 Pass a dict as `components=` to fill it with the per-term decomposition while you
 compute the gradient.
 
+### RDKit shortcut — `compute_energy` / `compute_energy_components`
+
+If you already have an RDKit `Mol` with a conformer, skip the manual topology
+build. These live in `pmeff.forcefield` (not re-exported at the top level):
+
+```python
+from pmeff.forcefield import compute_energy, compute_energy_components
+
+e = compute_energy(mol)                                    # bare-default single point
+e = compute_energy(mol, electronic_effects=True,           # …or under the same
+                   use_morse=True, use_hbond=True)         #   force field you optimize with
+comp = compute_energy_components(mol, use_morse=True)      # per-term dict, or None
+```
+
+Both accept the **full physics switch set** — `electronic_effects`, `use_morse`,
+`use_hbond`, `use_dispersion`, `use_polar_contraction` — so a single point can be
+evaluated under exactly the force field `optimize_mol` will use, rather than the
+bare harmonic default. They return `None` when the molecule has no conformer.
+
+> The switches all default to *off* (except `use_polar_contraction`), so a plain
+> `compute_energy(mol)` is the bare-default single point. To match `optimize_mol`'s
+> defaults, pass `electronic_effects=True, use_morse=True, use_hbond=True`.
+
 ---
 
 ## 7. Vibrational / minimum check
@@ -289,6 +312,16 @@ Returned dict:
 This is a **unit-mass** normal-mode analysis over a finite-difference Hessian of
 the analytical gradient — good for classifying stationary points, not for
 predicting real IR frequencies.
+
+For an RDKit `Mol`, `pmeff.forcefield.check_minimum(mol, ...)` is the same
+shortcut as above — it takes the full physics switch set and returns the same
+dict (or `None` without a conformer):
+
+```python
+from pmeff.forcefield import check_minimum
+
+vib = check_minimum(mol, electronic_effects=True, use_morse=True)
+```
 
 ---
 
