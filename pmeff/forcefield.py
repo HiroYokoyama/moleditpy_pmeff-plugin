@@ -1904,10 +1904,28 @@ def _conformer_coords(mol: Any) -> Optional[np.ndarray]:
     return coords
 
 
-def compute_energy(mol: Any, electronic_effects: bool = False) -> Optional[float]:
-    """Return the PMEFF single-point energy of *mol*, or None if unavailable."""
+def compute_energy(
+    mol: Any,
+    electronic_effects: bool = False,
+    use_morse: bool = False,
+    use_dispersion: bool = False,
+    use_hbond: bool = False,
+    use_polar_contraction: bool = True,
+) -> Optional[float]:
+    """Return the PMEFF single-point energy of *mol*, or None if unavailable.
+
+    Accepts the same physics switches as :func:`compute_energy_components` and
+    :func:`check_minimum` (of which this is the total-energy shim), so a
+    single-point can be evaluated under exactly the force field it will be
+    optimized with instead of the bare harmonic default.
+    """
     components = compute_energy_components(
-        mol, electronic_effects=electronic_effects
+        mol,
+        electronic_effects=electronic_effects,
+        use_morse=use_morse,
+        use_dispersion=use_dispersion,
+        use_hbond=use_hbond,
+        use_polar_contraction=use_polar_contraction,
     )
     return None if components is None else components["total"]
 
