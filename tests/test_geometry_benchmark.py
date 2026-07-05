@@ -43,26 +43,26 @@ _ANGLE_TOL_DEG = 4.5
 # (name, SMILES, [(atom_i, atom_j, reference_length_A)]). Atom indices follow
 # RDKit's ordering after AddHs (heavy atoms in SMILES order, then hydrogens).
 _BOND_CASES = [
-    ("ethane",         "CC",        [(0, 1, 1.54)]),
-    ("ethylene",       "C=C",       [(0, 1, 1.34)]),
-    ("acetylene",      "C#C",       [(0, 1, 1.20)]),
-    ("methanol",       "CO",        [(0, 1, 1.43)]),
-    ("methylamine",    "CN",        [(0, 1, 1.47)]),
-    ("carbon dioxide", "O=C=O",     [(0, 1, 1.16)]),
-    ("hydrogen cyanide", "C#N",     [(0, 1, 1.16)]),
-    ("fluoromethane",  "CF",        [(0, 1, 1.38)]),
-    ("chloromethane",  "CCl",       [(0, 1, 1.78)]),
-    ("bromomethane",   "CBr",       [(0, 1, 1.94)]),
-    ("methanethiol",   "CS",        [(0, 1, 1.82)]),
-    ("benzene",        "c1ccccc1",  [(0, 1, 1.39)]),
-    ("silanol",        "O[SiH3]",   [(0, 1, 1.63)]),  # polar Si-O
+    ("ethane", "CC", [(0, 1, 1.54)]),
+    ("ethylene", "C=C", [(0, 1, 1.34)]),
+    ("acetylene", "C#C", [(0, 1, 1.20)]),
+    ("methanol", "CO", [(0, 1, 1.43)]),
+    ("methylamine", "CN", [(0, 1, 1.47)]),
+    ("carbon dioxide", "O=C=O", [(0, 1, 1.16)]),
+    ("hydrogen cyanide", "C#N", [(0, 1, 1.16)]),
+    ("fluoromethane", "CF", [(0, 1, 1.38)]),
+    ("chloromethane", "CCl", [(0, 1, 1.78)]),
+    ("bromomethane", "CBr", [(0, 1, 1.94)]),
+    ("methanethiol", "CS", [(0, 1, 1.82)]),
+    ("benzene", "c1ccccc1", [(0, 1, 1.39)]),
+    ("silanol", "O[SiH3]", [(0, 1, 1.63)]),  # polar Si-O
 ]
 
 # (name, SMILES, (atom_i, vertex_j, atom_k), reference_angle_deg).
 _ANGLE_CASES = [
-    ("water H-O-H",         "O",     (1, 0, 2), 104.5),
-    ("ammonia H-N-H",       "N",     (1, 0, 2), 106.7),
-    ("methane H-C-H",       "C",     (1, 0, 2), 109.5),
+    ("water H-O-H", "O", (1, 0, 2), 104.5),
+    ("ammonia H-N-H", "N", (1, 0, 2), 106.7),
+    ("methane H-C-H", "C", (1, 0, 2), 109.5),
     ("carbon dioxide O-C-O", "O=C=O", (0, 1, 2), 180.0),
 ]
 
@@ -74,9 +74,7 @@ def _optimized_positions(smiles: str) -> tuple:
     success, result = ff.optimize_rdkit_mol(mol, max_iter=1000, **_KW)
     assert success is True
     conf = mol.GetConformer()
-    coords = np.array(
-        [list(conf.GetAtomPosition(i)) for i in range(mol.GetNumAtoms())]
-    )
+    coords = np.array([list(conf.GetAtomPosition(i)) for i in range(mol.GetNumAtoms())])
     return mol, coords, result
 
 
@@ -91,7 +89,9 @@ def _angle_deg(coords: np.ndarray, i: int, j: int, k: int) -> float:
     return math.degrees(math.acos(float(np.clip(cos, -1.0, 1.0))))
 
 
-@pytest.mark.parametrize("name,smiles,refs", _BOND_CASES, ids=[c[0] for c in _BOND_CASES])
+@pytest.mark.parametrize(
+    "name,smiles,refs", _BOND_CASES, ids=[c[0] for c in _BOND_CASES]
+)
 def test_bond_length_accuracy(name, smiles, refs):
     _mol, coords, _res = _optimized_positions(smiles)
     for i, j, ref in refs:
@@ -147,10 +147,7 @@ def test_optimizer_reaches_topology_rest_lengths(smiles):
     assert AllChem.EmbedMolecule(mol, randomSeed=7) == 0
     topo = ff.topology_from_rdkit(mol, **_KW)
     coords = np.array(
-        [
-            list(mol.GetConformer().GetAtomPosition(i))
-            for i in range(mol.GetNumAtoms())
-        ]
+        [list(mol.GetConformer().GetAtomPosition(i)) for i in range(mol.GetNumAtoms())]
     )
     opt_coords, result = ff.optimize(coords, topo, max_iter=1000)
     assert result.converged

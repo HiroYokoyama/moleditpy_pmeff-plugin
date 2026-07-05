@@ -104,9 +104,7 @@ def load_settings() -> dict:
 def save_settings(settings: dict) -> None:
     """Write settings.json atomically (temp file + replace)."""
     try:
-        fd, tmp = tempfile.mkstemp(
-            dir=str(_SETTINGS_FILE.parent), suffix=".tmp"
-        )
+        fd, tmp = tempfile.mkstemp(dir=str(_SETTINGS_FILE.parent), suffix=".tmp")
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(settings, fh, indent=2)
         os.replace(tmp, _SETTINGS_FILE)

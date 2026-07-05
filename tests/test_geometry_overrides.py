@@ -30,9 +30,7 @@ _COORDS4 = np.array(
 
 
 def _topo4(override):
-    return build_topology(
-        _NUMS4, _BONDS4, coords=_COORDS4, geometry_overrides=override
-    )
+    return build_topology(_NUMS4, _BONDS4, coords=_COORDS4, geometry_overrides=override)
 
 
 # --------------------------------------------------------------------------
@@ -49,9 +47,7 @@ def test_tetrahedral_override_sets_10947():
 def test_trigonal_planar_override_sets_120_and_planarity():
     nums = [26, 9, 9, 9]
     bonds = [(0, 1), (0, 2), (0, 3)]
-    coords = np.array(
-        [[0, 0, 0], [2, 0, 0], [-1, 1.7, 0], [-1, -1.7, 0]], dtype=float
-    )
+    coords = np.array([[0, 0, 0], [2, 0, 0], [-1, 1.7, 0], [-1, -1.7, 0]], dtype=float)
     topo = build_topology(
         nums, bonds, coords=coords, geometry_overrides={0: "trigonal_planar"}
     )
@@ -65,14 +61,29 @@ def test_trigonal_planar_override_sets_120_and_planarity():
 # --------------------------------------------------------------------------
 def test_square_planar_override_cis_trans():
     # 4 in-plane ligands: 4 cis (90) + 2 trans (180) = C(4,2) = 6 angles.
-    assert _angles_deg(_topo4({0: "square_planar"})) == [90.0, 90.0, 90.0, 90.0, 180.0, 180.0]
+    assert _angles_deg(_topo4({0: "square_planar"})) == [
+        90.0,
+        90.0,
+        90.0,
+        90.0,
+        180.0,
+        180.0,
+    ]
 
 
 def test_octahedral_override_cis_trans():
     nums = [26] + [9] * 6
     bonds = [(0, i) for i in range(1, 7)]
     coords = np.array(
-        [[0, 0, 0], [2, 0, 0], [-2, 0, 0], [0, 2, 0], [0, -2, 0], [0, 0, 2], [0, 0, -2]],
+        [
+            [0, 0, 0],
+            [2, 0, 0],
+            [-2, 0, 0],
+            [0, 2, 0],
+            [0, -2, 0],
+            [0, 0, 2],
+            [0, 0, -2],
+        ],
         dtype=float,
     )
     topo = build_topology(
@@ -136,7 +147,10 @@ def test_override_removes_sp2_planarity():
     planar = build_topology(nums, bonds, ["SP2", "", "", ""], coords=coords)
     assert len(planar.oops) == 1
     forced = build_topology(
-        nums, bonds, ["SP2", "", "", ""], coords=coords,
+        nums,
+        bonds,
+        ["SP2", "", "", ""],
+        coords=coords,
         geometry_overrides={0: "tetrahedral"},
     )
     assert len(forced.oops) == 0
@@ -187,7 +201,9 @@ def test_optimize_rdkit_mol_threads_overrides(monkeypatch):
         return real_build(*args, **kwargs)
 
     monkeypatch.setattr(ff, "build_topology", spy)
-    ok, _ = ff.optimize_rdkit_mol(mol, max_iter=20, geometry_overrides={1: "tetrahedral"})
+    ok, _ = ff.optimize_rdkit_mol(
+        mol, max_iter=20, geometry_overrides={1: "tetrahedral"}
+    )
     assert ok
     assert captured["geometry_overrides"] == {1: "tetrahedral"}
 
@@ -206,8 +222,18 @@ def test_dialog_geometry_choices_match_engine():
 
 @pytest.mark.parametrize(
     "z,metal",
-    [(26, True), (78, True), (3, True), (13, True), (6, False), (8, False),
-     (1, False), (14, False), (17, False), (2, False)],
+    [
+        (26, True),
+        (78, True),
+        (3, True),
+        (13, True),
+        (6, False),
+        (8, False),
+        (1, False),
+        (14, False),
+        (17, False),
+        (2, False),
+    ],
 )
 def test_is_metal(z, metal):
     from pmeff_plugin.geometry_override_dialog import is_metal

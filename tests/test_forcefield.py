@@ -20,9 +20,9 @@ def test_covalent_radius_covers_whole_periodic_table():
 
 
 def test_covalent_radius_known_values():
-    assert ff.covalent_radius(1) == pytest.approx(0.32)   # H
-    assert ff.covalent_radius(6) == pytest.approx(0.75)   # C
-    assert ff.covalent_radius(8) == pytest.approx(0.63)   # O
+    assert ff.covalent_radius(1) == pytest.approx(0.32)  # H
+    assert ff.covalent_radius(6) == pytest.approx(0.75)  # C
+    assert ff.covalent_radius(8) == pytest.approx(0.63)  # O
     assert ff.covalent_radius(118) == pytest.approx(1.57)  # Og
 
 
@@ -33,9 +33,9 @@ def test_covalent_radius_fallback_for_dummy_atoms():
 
 def test_vdw_radius_approximates_tabulated_values():
     # Derived vdW radii should land near the accepted tabulated values.
-    assert ff.vdw_radius(1) == pytest.approx(1.20, abs=0.1)   # H ~1.20
-    assert ff.vdw_radius(6) == pytest.approx(1.70, abs=0.1)   # C ~1.70
-    assert ff.vdw_radius(8) == pytest.approx(1.52, abs=0.1)   # O ~1.52
+    assert ff.vdw_radius(1) == pytest.approx(1.20, abs=0.1)  # H ~1.20
+    assert ff.vdw_radius(6) == pytest.approx(1.70, abs=0.1)  # C ~1.70
+    assert ff.vdw_radius(8) == pytest.approx(1.52, abs=0.1)  # O ~1.52
 
 
 def test_bond_order_factor_shortens_higher_orders():
@@ -51,12 +51,12 @@ def test_bond_order_factor_shortens_higher_orders():
 
 def test_polar_bond_contraction_only_fires_for_polar_bonds():
     # Nonpolar and mildly polar organic bonds are untouched...
-    assert ff.polar_bond_contraction(6, 6) == 0.0          # C-C
-    assert ff.polar_bond_contraction(6, 1) == 0.0          # C-H
+    assert ff.polar_bond_contraction(6, 6) == 0.0  # C-C
+    assert ff.polar_bond_contraction(6, 1) == 0.0  # C-H
     assert ff.polar_bond_contraction(6, 8) == pytest.approx(0.0, abs=1e-3)  # C-O
     # ...while strongly polar bonds contract, capped at 0.20 A.
-    assert ff.polar_bond_contraction(6, 9) > 0.02          # C-F
-    assert ff.polar_bond_contraction(14, 8) > 0.10         # Si-O
+    assert ff.polar_bond_contraction(6, 9) > 0.02  # C-F
+    assert ff.polar_bond_contraction(14, 8) > 0.10  # Si-O
     assert ff.polar_bond_contraction(11, 9) == pytest.approx(0.20)  # Na-F capped
     # Symmetric in its arguments.
     assert ff.polar_bond_contraction(14, 8) == ff.polar_bond_contraction(8, 14)
@@ -94,9 +94,9 @@ def test_build_topology_water():
         hybridizations=["SP3", None, None],
     )
     assert len(topo.bonds) == 2
-    assert len(topo.angles) == 1          # H-O-H
+    assert len(topo.angles) == 1  # H-O-H
     i, j, k, theta0 = topo.angles[0]
-    assert j == 0                          # oxygen is the vertex
+    assert j == 0  # oxygen is the vertex
     # sp3 oxygen carries two lone pairs (CN 2): the H-O-H target is compressed
     # below tetrahedral to the experimental ~104.5 deg, not 109.47.
     assert math.degrees(theta0) == pytest.approx(104.47, abs=0.1)
@@ -109,9 +109,9 @@ def test_sp3_lone_pair_angle_compression():
     # their lone pairs; period-2 atoms mildly, heavier ones down to ~93 deg.
     assert ff._ideal_angle_deg("SP3", 2, 8) == pytest.approx(104.47, abs=0.1)  # H2O
     assert ff._ideal_angle_deg("SP3", 3, 7) == pytest.approx(106.97, abs=0.1)  # NH3
-    assert ff._ideal_angle_deg("SP3", 2, 16) == pytest.approx(93.0, abs=0.1)   # H2S
-    assert ff._ideal_angle_deg("SP3", 3, 15) == pytest.approx(93.0, abs=0.1)   # PH3
-    assert ff._ideal_angle_deg("SP3", 2, 34) == pytest.approx(93.0, abs=0.1)   # H2Se
+    assert ff._ideal_angle_deg("SP3", 2, 16) == pytest.approx(93.0, abs=0.1)  # H2S
+    assert ff._ideal_angle_deg("SP3", 3, 15) == pytest.approx(93.0, abs=0.1)  # PH3
+    assert ff._ideal_angle_deg("SP3", 2, 34) == pytest.approx(93.0, abs=0.1)  # H2Se
 
 
 def test_sp3_no_compression_without_lone_pairs():
@@ -147,23 +147,17 @@ def test_sp3_lone_pair_opens_with_heavy_substituents():
         raise AssertionError("no angle at center")
 
     water = center_angle([8, 1, 1], [(0, 1), (0, 2)], ["SP3", None, None])
-    ether = center_angle(
-        [8, 6, 6], [(0, 1), (0, 2)], ["SP3", "SP3", "SP3"]
-    )
-    methanol = center_angle(
-        [8, 6, 1], [(0, 1), (0, 2)], ["SP3", "SP3", None]
-    )
-    assert water == pytest.approx(104.47, abs=0.1)      # H-O-H fully compressed
-    assert ether == pytest.approx(109.47, abs=0.1)      # C-O-C ~tetrahedral
-    assert methanol == pytest.approx(106.97, abs=0.1)   # C-O-H halfway
+    ether = center_angle([8, 6, 6], [(0, 1), (0, 2)], ["SP3", "SP3", "SP3"])
+    methanol = center_angle([8, 6, 1], [(0, 1), (0, 2)], ["SP3", "SP3", None])
+    assert water == pytest.approx(104.47, abs=0.1)  # H-O-H fully compressed
+    assert ether == pytest.approx(109.47, abs=0.1)  # C-O-C ~tetrahedral
+    assert methanol == pytest.approx(106.97, abs=0.1)  # C-O-H halfway
 
 
 def test_heavy_sp3_stays_flat_regardless_of_substituent():
     # Period-3+ centers bond through near-pure p and do not open with heavy
     # substituents: dimethyl sulfide keeps the flat ~93 deg target.
-    topo = ff.build_topology(
-        [16, 6, 6], [(0, 1), (0, 2)], ["SP3", "SP3", "SP3"]
-    )
+    topo = ff.build_topology([16, 6, 6], [(0, 1), (0, 2)], ["SP3", "SP3", "SP3"])
     assert math.degrees(topo.angles[0][3]) == pytest.approx(93.0, abs=0.1)
 
 
@@ -174,13 +168,11 @@ def test_build_topology_deduplicates_bonds():
 
 def test_build_topology_vdw_pairs_for_distant_atoms():
     # A linear 4-atom chain: atoms 0 and 3 are 1-4 -> a vdW pair.
-    topo = ff.build_topology(
-        [6, 6, 6, 6], [(0, 1), (1, 2), (2, 3)], None
-    )
+    topo = ff.build_topology([6, 6, 6, 6], [(0, 1), (1, 2), (2, 3)], None)
     pairs = {(i, j) for i, j, _, _ in topo.vdw_pairs}
     assert (0, 3) in pairs
-    assert (0, 1) not in pairs   # bonded
-    assert (0, 2) not in pairs   # 1-3
+    assert (0, 1) not in pairs  # bonded
+    assert (0, 2) not in pairs  # 1-3
 
 
 def _ethylene_topology() -> ff.Topology:
@@ -196,9 +188,7 @@ def _ethylene_topology() -> ff.Topology:
 def _ethane_topology() -> ff.Topology:
     return ff.build_topology(
         atomic_numbers=[6, 6, 1, 1, 1, 1, 1, 1],
-        bond_pairs=[
-            (0, 1), (0, 2), (0, 3), (0, 4), (1, 5), (1, 6), (1, 7)
-        ],
+        bond_pairs=[(0, 1), (0, 2), (0, 3), (0, 4), (1, 5), (1, 6), (1, 7)],
         hybridizations=["SP3", "SP3"] + [None] * 6,
     )
 
@@ -220,16 +210,14 @@ def test_torsions_assigned_for_sp2_and_sp3_bonds():
         assert v == pytest.approx(ff._V_TORSION_SP2 / 4)
 
     ethane = _ethane_topology()
-    assert len(ethane.torsions) == 9   # 3 x 3 H-C-C-H paths
+    assert len(ethane.torsions) == 9  # 3 x 3 H-C-C-H paths
     assert all(n == 3 for *_rest, n, _g in ethane.torsions)
 
 
 def test_three_ring_angles_use_law_of_cosines():
     # Bare C3 ring: equal rest lengths -> equilateral -> 60 deg targets,
     # so bonds and angles share a single minimum instead of fighting.
-    topo = ff.build_topology(
-        [6, 6, 6], [(0, 1), (1, 2), (0, 2)], ["SP3"] * 3
-    )
+    topo = ff.build_topology([6, 6, 6], [(0, 1), (1, 2), (0, 2)], ["SP3"] * 3)
     assert len(topo.angles) == 3
     for *_ijk, theta0 in topo.angles:
         assert math.degrees(theta0) == pytest.approx(60.0, abs=1e-6)
@@ -274,8 +262,7 @@ def test_linear_sp_center_stays_linear_with_finite_gradient():
     v2 = out[2] - out[1]
     angle = math.degrees(
         math.acos(
-            float(np.dot(v1, v2))
-            / float(np.linalg.norm(v1) * np.linalg.norm(v2))
+            float(np.dot(v1, v2)) / float(np.linalg.norm(v1) * np.linalg.norm(v2))
         )
     )
     assert angle == pytest.approx(180.0, abs=1.0)
@@ -286,9 +273,7 @@ def test_gradient_matches_numeric_near_linear_angle():
         [8, 6, 8], [(0, 1), (1, 2)], [None, "SP", None], bond_orders=[2, 2]
     )
     # Slightly bent, slightly stretched — off-minimum in every term.
-    coords = np.array(
-        [[-1.15, 0.06, 0.02], [0.0, 0.0, 0.0], [1.18, 0.05, -0.03]]
-    )
+    coords = np.array([[-1.15, 0.06, 0.02], [0.0, 0.0, 0.0], [1.18, 0.05, -0.03]])
     _, analytic = ff.energy_and_gradient(coords, topo)
     numeric = _numeric_gradient(coords, topo)
     assert np.allclose(analytic, numeric, atol=1e-4)
@@ -296,9 +281,7 @@ def test_gradient_matches_numeric_near_linear_angle():
 
 def test_vdw_14_pairs_get_half_epsilon():
     # Pentane-like chain: (0,3) is 1-4 (half eps), (0,4) is 1-5 (full eps).
-    topo = ff.build_topology(
-        [6] * 5, [(0, 1), (1, 2), (2, 3), (3, 4)], None
-    )
+    topo = ff.build_topology([6] * 5, [(0, 1), (1, 2), (2, 3), (3, 4)], None)
     eps = {(i, j): e for i, j, _rmin, e in topo.vdw_pairs}
     assert eps[(0, 3)] == pytest.approx(ff._VDW_EPS * ff._VDW_14_SCALE)
     assert eps[(1, 4)] == pytest.approx(ff._VDW_EPS * ff._VDW_14_SCALE)
@@ -349,15 +332,17 @@ def test_vdw_cutoff_drops_distant_pairs_but_not_electrostatics():
     full = ff.build_topology(atoms, [], None)
     assert len(full.vdw_pairs) == 1
 
-    cut = ff.build_topology(
-        atoms, [], None, coords=coords, vdw_cutoff=12.0
-    )
+    cut = ff.build_topology(atoms, [], None, coords=coords, vdw_cutoff=12.0)
     assert cut.vdw_pairs == []
 
     # Electrostatics are long-range and must survive the vdW cutoff.
     charged = ff.build_topology(
-        atoms, [], None, charges=[0.5, -0.5],
-        coords=coords, vdw_cutoff=12.0,
+        atoms,
+        [],
+        None,
+        charges=[0.5, -0.5],
+        coords=coords,
+        vdw_cutoff=12.0,
     )
     assert charged.vdw_pairs == []
     assert len(charged.elec_pairs) == 1
@@ -369,9 +354,7 @@ def test_vdw_switching_tapers_smoothly_and_gradient_is_exact():
 
     def topo_and_coords(r):
         coords = np.array([[0.0, 0.0, 0.0], [r, 0.0, 0.0]])
-        topo = ff.build_topology(
-            atoms, [], None, coords=coords, vdw_cutoff=cutoff
-        )
+        topo = ff.build_topology(atoms, [], None, coords=coords, vdw_cutoff=cutoff)
         return topo, coords
 
     # Inside the switching window (10-12 A) the analytical gradient must
@@ -462,8 +445,11 @@ def test_refresh_vdw_pairs_tracks_moving_atoms():
 
 def test_refresh_vdw_pairs_keeps_14_scaling():
     topo = ff.build_topology(
-        [6] * 5, [(0, 1), (1, 2), (2, 3), (3, 4)], None,
-        coords=np.zeros((5, 3)), vdw_cutoff=12.0,
+        [6] * 5,
+        [(0, 1), (1, 2), (2, 3), (3, 4)],
+        None,
+        coords=np.zeros((5, 3)),
+        vdw_cutoff=12.0,
     )
     ff.refresh_vdw_pairs(topo, np.zeros((5, 3)))
     eps = {(i, j): e for i, j, _rmin, e in topo.vdw_pairs}
@@ -486,17 +472,21 @@ def test_optimizer_refreshes_pair_list_as_atoms_approach():
     atoms = [6, 6]
     start = np.array([[0.0, 0.0, 0.0], [20.0, 0.0, 0.0]])
     topo = ff.build_topology(
-        atoms, [], None, charges=[0.5, -0.5],
-        coords=start, vdw_cutoff=12.0,
+        atoms,
+        [],
+        None,
+        charges=[0.5, -0.5],
+        coords=start,
+        vdw_cutoff=12.0,
     )
     assert topo.vdw_pairs == []
     assert len(topo.elec_pairs) == 1
 
     out, _result = ff.optimize(start, topo, max_iter=5000)
     final = float(np.linalg.norm(out[0] - out[1]))
-    assert len(topo.vdw_pairs) == 1        # the refresh picked the pair up
-    assert final > 2.0                     # LJ repulsion prevented collapse
-    assert final < 12.0                    # ... but they did bind
+    assert len(topo.vdw_pairs) == 1  # the refresh picked the pair up
+    assert final > 2.0  # LJ repulsion prevented collapse
+    assert final < 12.0  # ... but they did bind
 
 
 def test_no_torsions_without_hybridization():
@@ -530,18 +520,14 @@ def _numeric_gradient(coords, topo, h=1e-5):
 
 def test_analytical_gradient_matches_numeric_water():
     topo = ff.build_topology([8, 1, 1], [(0, 1), (0, 2)], ["SP3", None, None])
-    coords = np.array(
-        [[0.0, 0.0, 0.0], [0.80, 0.60, 0.0], [-0.80, 0.55, 0.10]]
-    )
+    coords = np.array([[0.0, 0.0, 0.0], [0.80, 0.60, 0.0], [-0.80, 0.55, 0.10]])
     _, analytic = ff.energy_and_gradient(coords, topo)
     numeric = _numeric_gradient(coords, topo)
     assert np.allclose(analytic, numeric, atol=1e-4)
 
 
 def test_analytical_gradient_matches_numeric_chain():
-    topo = ff.build_topology(
-        [6, 6, 6, 6], [(0, 1), (1, 2), (2, 3)], None
-    )
+    topo = ff.build_topology([6, 6, 6, 6], [(0, 1), (1, 2), (2, 3)], None)
     rng = np.random.default_rng(1)
     coords = rng.normal(scale=1.2, size=(4, 3))
     _, analytic = ff.energy_and_gradient(coords, topo)
@@ -603,16 +589,21 @@ def _dihedral_deg(coords, i, j, k, l):
 
 
 def test_energy_components_decompose_the_total():
-    topo = ff.build_topology(
-        [8, 1, 1], [(0, 1), (0, 2)], ["SP3", None, None]
-    )
+    topo = ff.build_topology([8, 1, 1], [(0, 1), (0, 2)], ["SP3", None, None])
     coords = np.array(
         [[0.0, 0.0, 0.0], [1.10, 0.0, 0.0], [-0.20, 0.90, 0.0]]
     )  # stretched bonds, squeezed angle
     comp = ff.energy_components(coords, topo)
     assert set(comp) == {
-        "bond", "angle", "torsion", "oop", "vdw", "elec",
-        "hbond", "disp", "total",
+        "bond",
+        "angle",
+        "torsion",
+        "oop",
+        "vdw",
+        "elec",
+        "hbond",
+        "disp",
+        "total",
     }
     total, _ = ff.energy_and_gradient(coords, topo)
     parts = sum(v for k, v in comp.items() if k != "total")
@@ -628,15 +619,9 @@ def test_energy_minimum_at_rest_length():
     # Two-atom bond: energy is minimal exactly at r0 and rises on either side.
     topo = ff.build_topology([6, 6], [(0, 1)], None)
     r0 = topo.bonds[0][2]
-    e_rest, _ = ff.energy_and_gradient(
-        np.array([[0.0, 0, 0], [r0, 0, 0]]), topo
-    )
-    e_short, _ = ff.energy_and_gradient(
-        np.array([[0.0, 0, 0], [r0 - 0.2, 0, 0]]), topo
-    )
-    e_long, _ = ff.energy_and_gradient(
-        np.array([[0.0, 0, 0], [r0 + 0.2, 0, 0]]), topo
-    )
+    e_rest, _ = ff.energy_and_gradient(np.array([[0.0, 0, 0], [r0, 0, 0]]), topo)
+    e_short, _ = ff.energy_and_gradient(np.array([[0.0, 0, 0], [r0 - 0.2, 0, 0]]), topo)
+    e_long, _ = ff.energy_and_gradient(np.array([[0.0, 0, 0], [r0 + 0.2, 0, 0]]), topo)
     assert e_rest < e_short
     assert e_rest < e_long
     assert e_rest == pytest.approx(0.0, abs=1e-9)
@@ -661,15 +646,13 @@ def test_hessian_diatomic_stretch_eigenvalue():
 
 def test_vibrational_analysis_confirms_water_minimum():
     topo = ff.build_topology([8, 1, 1], [(0, 1), (0, 2)], ["SP3", None, None])
-    coords = np.array(
-        [[0.0, 0.0, 0.0], [0.9, 0.4, 0.0], [-0.7, 0.6, 0.1]]
-    )
+    coords = np.array([[0.0, 0.0, 0.0], [0.9, 0.4, 0.0], [-0.7, 0.6, 0.1]])
     out, result = ff.optimize(coords, topo, max_iter=500, f_tol=1e-8)
     assert result.converged
     analysis = ff.vibrational_analysis(out, topo)
     assert analysis["is_minimum"]
     assert analysis["num_imaginary"] == 0
-    assert analysis["num_zero"] == 6      # nonlinear: 3 trans + 3 rot
+    assert analysis["num_zero"] == 6  # nonlinear: 3 trans + 3 rot
     assert np.all(analysis["frequencies"][6:] > 0.0)
 
 
@@ -711,9 +694,7 @@ def test_vibrational_analysis_detects_eclipsed_saddle():
     assert ff.vibrational_analysis(out, topo)["is_minimum"]
 
     eclipsed = out.copy()
-    eclipsed[5:] = _rotated_about_axis(
-        out[5:], out[1], out[1] - out[0], math.pi / 3.0
-    )
+    eclipsed[5:] = _rotated_about_axis(out[5:], out[1], out[1] - out[0], math.pi / 3.0)
     analysis = ff.vibrational_analysis(eclipsed, topo)
     assert not analysis["is_minimum"]
     assert analysis["num_imaginary"] >= 1
@@ -736,16 +717,12 @@ def test_optimize_relaxes_stretched_bond():
 def test_optimize_opens_up_bent_water():
     topo = ff.build_topology([8, 1, 1], [(0, 1), (0, 2)], ["SP3", None, None])
     # Start with an artificially tight H-O-H angle.
-    coords = np.array(
-        [[0.0, 0.0, 0.0], [0.9, 0.1, 0.0], [0.9, -0.1, 0.0]]
-    )
+    coords = np.array([[0.0, 0.0, 0.0], [0.9, 0.1, 0.0], [0.9, -0.1, 0.0]])
     out, result = ff.optimize(coords, topo, max_iter=1000)
     v1 = out[1] - out[0]
     v2 = out[2] - out[0]
     angle = math.degrees(
-        math.acos(
-            np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
-        )
+        math.acos(np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2)))
     )
     # Relaxes to the lone-pair-compressed sp3 oxygen target (~104.5 deg),
     # opening up from the artificially tight start.
@@ -777,6 +754,7 @@ def test_optimize_planarizes_twisted_ethylene():
 
 def test_optimize_staggers_eclipsed_ethane():
     topo = _ethane_topology()
+
     # Nearly eclipsed ethane (15 deg twist — a perfect eclipse is a saddle
     # point with zero torsional force by symmetry).
     def ring(x, r, phase):
@@ -809,7 +787,7 @@ def test_optimize_flattens_pyramidal_sp2_center():
     assert len(topo.oops) == 1
     coords = np.array(
         [
-            [0.0, 0.0, 0.6],       # C displaced from the plane
+            [0.0, 0.0, 0.6],  # C displaced from the plane
             [1.10, 0.0, 0.0],
             [-0.6, 0.95, 0.0],
             [-0.6, -0.95, 0.0],
@@ -847,9 +825,7 @@ def test_optimizer_reaches_tight_convergence():
 
 
 def test_optimize_lowers_energy():
-    topo = ff.build_topology(
-        [6, 6, 6, 6], [(0, 1), (1, 2), (2, 3)], None
-    )
+    topo = ff.build_topology([6, 6, 6, 6], [(0, 1), (1, 2), (2, 3)], None)
     rng = np.random.default_rng(7)
     coords = rng.normal(scale=1.5, size=(4, 3))
     e_before, _ = ff.energy_and_gradient(coords, topo)
@@ -874,7 +850,7 @@ def test_hybridization_chi_scaling_sp2_increases_electronegativity():
     q_base = ff.qeq_charges([6, 1], coords, 0.0)
     # sp2 carbon should be more negative (pulls more from H) than sp3 or base.
     assert q_sp2[0] < q_sp3[0]
-    assert q_sp3[0] <= q_base[0] + 1e-10   # sp3 and base are equal
+    assert q_sp3[0] <= q_base[0] + 1e-10  # sp3 and base are equal
     # Total charge must be conserved in all cases.
     assert sum(q_sp2) == pytest.approx(0.0, abs=1e-10)
     assert sum(q_sp3) == pytest.approx(0.0, abs=1e-10)
@@ -888,13 +864,15 @@ def test_square_planar_geometry_based_targets_assigned():
     # 2 trans (pi) and 4 cis (pi/2) targets based on the initial geometry.
     d = 2.31  # typical Pd-Cl bond length in Angstrom
     # Perfect square-planar starting coords: Pd at origin, 4 Cl at +/-x,+/-y.
-    coords = np.array([
-        [0.0, 0.0, 0.0],   # Pd (index 0)
-        [d, 0.0, 0.0],     # Cl +x (trans to Cl -x)
-        [-d, 0.0, 0.0],    # Cl -x
-        [0.0, d, 0.0],     # Cl +y (trans to Cl -y)
-        [0.0, -d, 0.0],    # Cl -y
-    ])
+    coords = np.array(
+        [
+            [0.0, 0.0, 0.0],  # Pd (index 0)
+            [d, 0.0, 0.0],  # Cl +x (trans to Cl -x)
+            [-d, 0.0, 0.0],  # Cl -x
+            [0.0, d, 0.0],  # Cl +y (trans to Cl -y)
+            [0.0, -d, 0.0],  # Cl -y
+        ]
+    )
     topo = ff.build_topology(
         atomic_numbers=[46, 17, 17, 17, 17],
         bond_pairs=[(0, 1), (0, 2), (0, 3), (0, 4)],
@@ -914,12 +892,15 @@ def test_square_planar_pd_relaxes_from_near_tetrahedral():
     d = 2.31
     # Regular tetrahedron vertices (scaled to bond length d).
     s3 = math.sqrt(3.0)
-    tet = np.array([
-        [1.0,  1.0,  1.0],
-        [1.0, -1.0, -1.0],
-        [-1.0,  1.0, -1.0],
-        [-1.0, -1.0,  1.0],
-    ], dtype=float)
+    tet = np.array(
+        [
+            [1.0, 1.0, 1.0],
+            [1.0, -1.0, -1.0],
+            [-1.0, 1.0, -1.0],
+            [-1.0, -1.0, 1.0],
+        ],
+        dtype=float,
+    )
     tet = tet / np.linalg.norm(tet[0]) * d
     # Small asymmetric perturbation so the greedy selection makes a clean pick.
     rng = np.random.default_rng(99)
@@ -991,15 +972,19 @@ def test_morse_bond_gradient_matches_numeric():
 def test_hbond_triplets_detected_for_water_dimer():
     # O-H...O arrangement: donor O at (-1,0,0), H at origin, near acceptor O at
     # (2,0,0) [r=2.0 A < 4.5 A cutoff], and a far O at (6,0,0) [r=6 A > cutoff].
-    coords = np.array([
-        [-1.0, 0.0, 0.0],  # O_donor  (0)
-        [0.0,  0.0, 0.0],  # H        (1)
-        [2.0,  0.0, 0.0],  # O_accept (2)  r_HA = 2.0 A  (included)
-        [6.0,  0.0, 0.0],  # O far    (3)  r_HA = 6.0 A  (excluded)
-    ])
+    coords = np.array(
+        [
+            [-1.0, 0.0, 0.0],  # O_donor  (0)
+            [0.0, 0.0, 0.0],  # H        (1)
+            [2.0, 0.0, 0.0],  # O_accept (2)  r_HA = 2.0 A  (included)
+            [6.0, 0.0, 0.0],  # O far    (3)  r_HA = 6.0 A  (excluded)
+        ]
+    )
     topo = ff.build_topology(
-        [8, 1, 8, 8], [(0, 1)],
-        coords=coords, use_hbond=True,
+        [8, 1, 8, 8],
+        [(0, 1)],
+        coords=coords,
+        use_hbond=True,
     )
     dhas = [(d, h, a) for d, h, a, *_ in topo.hbond_triplets]
     assert (0, 1, 2) in dhas
@@ -1008,19 +993,25 @@ def test_hbond_triplets_detected_for_water_dimer():
 
 def test_hbond_energy_lower_at_linear_geometry():
     # Linear D-H...A gives lower energy than bent (cos² factor).
-    coords_lin = np.array([
-        [-1.0, 0.0, 0.0],   # O_donor
-        [0.0,  0.0, 0.0],   # H
-        [2.0,  0.0, 0.0],   # O_acceptor (linear)
-    ])
-    coords_bent = np.array([
-        [-1.0, 0.0,  0.0],
-        [0.0,  0.0,  0.0],
-        [1.0,  1.7,  0.0],  # acceptor at ~120° D-H-A
-    ])
+    coords_lin = np.array(
+        [
+            [-1.0, 0.0, 0.0],  # O_donor
+            [0.0, 0.0, 0.0],  # H
+            [2.0, 0.0, 0.0],  # O_acceptor (linear)
+        ]
+    )
+    coords_bent = np.array(
+        [
+            [-1.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [1.0, 1.7, 0.0],  # acceptor at ~120° D-H-A
+        ]
+    )
     topo = ff.build_topology(
-        [8, 1, 8], [(0, 1)],
-        coords=coords_lin, use_hbond=True,
+        [8, 1, 8],
+        [(0, 1)],
+        coords=coords_lin,
+        use_hbond=True,
     )
     e_lin, _ = ff.energy_and_gradient(coords_lin, topo)
     e_bent, _ = ff.energy_and_gradient(coords_bent, topo)
@@ -1028,14 +1019,18 @@ def test_hbond_energy_lower_at_linear_geometry():
 
 
 def test_hbond_gradient_matches_numeric():
-    coords = np.array([
-        [-1.0, 0.0, 0.0],
-        [0.0,  0.0, 0.0],
-        [2.1,  0.0, 0.0],
-    ])
+    coords = np.array(
+        [
+            [-1.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [2.1, 0.0, 0.0],
+        ]
+    )
     topo = ff.build_topology(
-        [7, 1, 8], [(0, 1)],
-        coords=coords, use_hbond=True,
+        [7, 1, 8],
+        [(0, 1)],
+        coords=coords,
+        use_hbond=True,
     )
     _, g_ana = ff.energy_and_gradient(coords, topo)
     step = 1e-5
@@ -1054,14 +1049,18 @@ def test_hbond_gradient_matches_numeric_bent_geometry():
     # Bent D-H···A geometry (cos²(θ) ≠ 1): the radial gradient must include
     # the cos²(θ) factor.  A missing factor causes errors of order 0.07–1.25
     # on the H and A atoms.
-    coords = np.array([
-        [-1.0, 0.0, 0.0],
-        [0.0,  0.0, 0.0],
-        [1.5,  1.5, 0.0],   # ~45° D-H-A bend
-    ])
+    coords = np.array(
+        [
+            [-1.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [1.5, 1.5, 0.0],  # ~45° D-H-A bend
+        ]
+    )
     topo = ff.build_topology(
-        [7, 1, 8], [(0, 1)],
-        coords=coords, use_hbond=True,
+        [7, 1, 8],
+        [(0, 1)],
+        coords=coords,
+        use_hbond=True,
     )
     _, g_ana = ff.energy_and_gradient(coords, topo)
     step = 1e-5
@@ -1076,7 +1075,6 @@ def test_hbond_gradient_matches_numeric_bent_geometry():
     assert np.allclose(g_ana, g_num, atol=1e-5)
 
 
-
 # --- Dispersion correction -------------------------------------------------
 
 
@@ -1085,7 +1083,10 @@ def test_dispersion_deepens_vdw_well():
     coords = np.array([[0.0, 0.0, 0.0], [3.3, 0.0, 0.0]])  # ~C-C rmin
     topo_plain = ff.build_topology([6, 6], [], use_dispersion=False)
     topo_disp = ff.build_topology(
-        [6, 6], [], coords=coords, vdw_cutoff=ff._VDW_CUTOFF_A,
+        [6, 6],
+        [],
+        coords=coords,
+        vdw_cutoff=ff._VDW_CUTOFF_A,
         use_dispersion=True,
     )
     e_plain, _ = ff.energy_and_gradient(coords, topo_plain)
@@ -1096,7 +1097,10 @@ def test_dispersion_deepens_vdw_well():
 def test_dispersion_gradient_matches_numeric():
     coords = np.array([[0.0, 0.0, 0.0], [4.0, 0.0, 0.0]])
     topo = ff.build_topology(
-        [6, 6], [], coords=coords, vdw_cutoff=ff._VDW_CUTOFF_A,
+        [6, 6],
+        [],
+        coords=coords,
+        vdw_cutoff=ff._VDW_CUTOFF_A,
         use_dispersion=True,
     )
     _, g_ana = ff.energy_and_gradient(coords, topo)
@@ -1118,12 +1122,18 @@ def test_dispersion_gradient_matches_numeric():
 def test_octahedral_angle_targets_assigned_from_coordinates():
     # Perfect octahedron: 3 trans (π) and 12 cis (π/2) pairs.
     d = 2.1
-    coords = np.array([
-        [0, 0, 0],
-        [d, 0, 0], [-d, 0, 0],   # trans pair 1
-        [0, d, 0], [0, -d, 0],   # trans pair 2
-        [0, 0, d], [0, 0, -d],   # trans pair 3
-    ], dtype=float)
+    coords = np.array(
+        [
+            [0, 0, 0],
+            [d, 0, 0],
+            [-d, 0, 0],  # trans pair 1
+            [0, d, 0],
+            [0, -d, 0],  # trans pair 2
+            [0, 0, d],
+            [0, 0, -d],  # trans pair 3
+        ],
+        dtype=float,
+    )
     # Use Cr (Z=24) — a typical octahedral d-block metal.
     topo = ff.build_topology(
         [24, 17, 17, 17, 17, 17, 17],

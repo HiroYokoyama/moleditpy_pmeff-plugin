@@ -154,9 +154,7 @@ def open_settings_dialog(
         for key, cb in checks.items():
             cb.setChecked(bool(reset_to.get(key, True)))
 
-    restore_btn = buttons.button(
-        QDialogButtonBox.StandardButton.RestoreDefaults
-    )
+    restore_btn = buttons.button(QDialogButtonBox.StandardButton.RestoreDefaults)
     restore_btn.clicked.connect(_restore_defaults)
     layout.addWidget(buttons)
 

@@ -81,8 +81,7 @@ def test_optimized_benzene_is_planar_with_uniform_aromatic_bonds():
     cc = [
         float(np.linalg.norm(coords[b.GetBeginAtomIdx()] - coords[b.GetEndAtomIdx()]))
         for b in mol.GetBonds()
-        if b.GetBeginAtom().GetAtomicNum() == 6
-        and b.GetEndAtom().GetAtomicNum() == 6
+        if b.GetBeginAtom().GetAtomicNum() == 6 and b.GetEndAtom().GetAtomicNum() == 6
     ]
     assert max(cc) - min(cc) < 0.01
     assert 1.34 < min(cc) and max(cc) < 1.50
@@ -95,7 +94,8 @@ def test_rdkit_bond_orders_shorten_double_bond():
 
     def cc_rest(topo):
         return next(
-            r0 for i, j, r0, _k in topo.bonds
+            r0
+            for i, j, r0, _k in topo.bonds
             if topo.atomic_numbers[i] == 6 and topo.atomic_numbers[j] == 6
         )
 
@@ -148,8 +148,7 @@ def test_lone_pair_centers_keep_their_shape():
     v2 = coords[2] - coords[1]
     angle = np.degrees(
         np.arccos(
-            float(np.dot(v1, v2))
-            / float(np.linalg.norm(v1) * np.linalg.norm(v2))
+            float(np.dot(v1, v2)) / float(np.linalg.norm(v1) * np.linalg.norm(v2))
         )
     )
     assert 100.0 < angle < 120.0

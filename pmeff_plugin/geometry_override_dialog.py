@@ -39,8 +39,32 @@ GEOMETRY_CHOICES: List[tuple] = [
 # Non-metallic elements (incl. noble gases and the metalloids B, Si, Ge, As,
 # Sb, Te, At). Everything else with Z >= 3 is treated as a metal for the filter.
 _NONMETAL_Z: frozenset = frozenset(
-    {1, 2, 5, 6, 7, 8, 9, 10, 14, 15, 16, 17, 18,
-     32, 33, 34, 35, 36, 51, 52, 53, 54, 85, 86}
+    {
+        1,
+        2,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        14,
+        15,
+        16,
+        17,
+        18,
+        32,
+        33,
+        34,
+        35,
+        36,
+        51,
+        52,
+        53,
+        54,
+        85,
+        86,
+    }
 )
 
 
@@ -330,9 +354,11 @@ if _HAVE_QT:
                 best_idx, best_dist = -1, float("inf")
                 for atom in mol.GetAtoms():
                     p = conf.GetAtomPosition(atom.GetIdx())
-                    d = (p.x - pick_pos[0]) ** 2 + (p.y - pick_pos[1]) ** 2 + (
-                        p.z - pick_pos[2]
-                    ) ** 2
+                    d = (
+                        (p.x - pick_pos[0]) ** 2
+                        + (p.y - pick_pos[1]) ** 2
+                        + (p.z - pick_pos[2]) ** 2
+                    )
                     if d < best_dist:
                         best_dist, best_idx = d, atom.GetIdx()
                 if best_idx < 0 or best_idx not in self._row_atom:

@@ -207,7 +207,5 @@ def test_optimizer_callback_survives_engine_exception(monkeypatch):
         raise RuntimeError("engine exploded")
 
     monkeypatch.setattr(plugin, "_optimize", plugin._optimize)
-    monkeypatch.setattr(
-        "pmeff_plugin.forcefield.optimize_rdkit_mol", boom
-    )
+    monkeypatch.setattr("pmeff_plugin.forcefield.optimize_rdkit_mol", boom)
     assert callback(_embed("CCO")) is False

@@ -33,7 +33,9 @@ def test_copied_engine_matches_source():
     source = (ROOT / "pmeff_plugin" / "forcefield.py").read_text(encoding="utf-8")
     copied = (ROOT / "pmeff" / "forcefield.py").read_text(encoding="utf-8")
     body = "".join(copied.splitlines(keepends=True)[_SYNC_HEADER_LINES:])
-    assert body == source, "pmeff/forcefield.py is stale — run scripts/sync_forcefield.py"
+    assert body == source, (
+        "pmeff/forcefield.py is stale — run scripts/sync_forcefield.py"
+    )
 
 
 def test_version_matches_plugin_version():
@@ -74,7 +76,7 @@ def test_optimize_coords_relaxes_water_angle():
     ang = math.degrees(
         math.acos(np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2)))
     )
-    assert ang == pytest.approx(104.5, abs=1.5)   # lone-pair-compressed sp3 O
+    assert ang == pytest.approx(104.5, abs=1.5)  # lone-pair-compressed sp3 O
 
 
 def test_optimize_coords_does_not_mutate_input():
@@ -104,7 +106,7 @@ def test_optimize_mol_returns_same_object_relaxed():
     mol = Chem.AddHs(Chem.MolFromSmiles("O[SiH3]"))
     assert AllChem.EmbedMolecule(mol, randomSeed=1) == 0
     returned, result = pmeff.optimize_mol(mol)
-    assert returned is mol                        # same object, conformer updated
+    assert returned is mol  # same object, conformer updated
     assert result.converged
     conf = returned.GetConformer()
     si_o = np.linalg.norm(

@@ -81,10 +81,7 @@ def _random_molecule_topo(seed: int = 0):
     mol = Chem.AddHs(Chem.MolFromSmiles("CC(=O)Nc1ccccc1O"))  # a heteroatom mix
     AllChem.EmbedMolecule(mol, randomSeed=seed)
     coords = np.array(
-        [
-            list(mol.GetConformer().GetAtomPosition(i))
-            for i in range(mol.GetNumAtoms())
-        ]
+        [list(mol.GetConformer().GetAtomPosition(i)) for i in range(mol.GetNumAtoms())]
     )
     return ff.topology_from_rdkit(mol, electronic_effects=True), coords
 
@@ -127,8 +124,10 @@ def test_full_gradient_matches_numeric_on_real_molecule():
     flat = coords.ravel()
     num = np.zeros_like(flat)
     for a in range(flat.size):
-        up = flat.copy(); up[a] += step
-        dn = flat.copy(); dn[a] -= step
+        up = flat.copy()
+        up[a] += step
+        dn = flat.copy()
+        dn[a] -= step
         e_up, _ = ff.energy_and_gradient(up.reshape(coords.shape), topo)
         e_dn, _ = ff.energy_and_gradient(dn.reshape(coords.shape), topo)
         num[a] = (e_up - e_dn) / (2.0 * step)
@@ -144,15 +143,17 @@ def test_ammonium_stays_tetrahedral():
     AllChem.EmbedMolecule(mol, randomSeed=1)
     ff.optimize_rdkit_mol(mol, max_iter=800, electronic_effects=True)
     conf = mol.GetConformer()
-    coords = np.array(
-        [list(conf.GetAtomPosition(i)) for i in range(mol.GetNumAtoms())]
-    )
+    coords = np.array([list(conf.GetAtomPosition(i)) for i in range(mol.GetNumAtoms())])
     hs = [a.GetIdx() for a in mol.GetAtomWithIdx(0).GetNeighbors()]
     v1 = coords[hs[0]] - coords[0]
     v2 = coords[hs[1]] - coords[0]
     ang = math.degrees(
         math.acos(
-            float(np.clip(np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2)), -1, 1))
+            float(
+                np.clip(
+                    np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2)), -1, 1
+                )
+            )
         )
     )
     assert ang == pytest.approx(109.5, abs=3.0)

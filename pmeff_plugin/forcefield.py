@@ -63,25 +63,124 @@ logger = logging.getLogger(__name__)
 # bonded and non-bonded parameters are derived from them, guaranteeing complete
 # periodic-table coverage.
 _COVALENT_RADII_PM: Tuple[int, ...] = (
-    32,  46,                                                            # H  He
-    133, 102,  85,  75,  71,  63,  64,  67,                             # Li..Ne
-    155, 139, 126, 116, 111, 103,  99,  96,                             # Na..Ar
-    196, 171,                                                           # K  Ca
-    148, 136, 134, 122, 119, 116, 111, 110, 112, 118,                   # Sc..Zn
-    124, 121, 121, 116, 114, 117,                                       # Ga..Kr
-    210, 185,                                                           # Rb Sr
-    163, 154, 147, 138, 128, 125, 125, 120, 128, 136,                   # Y..Cd
-    142, 140, 140, 136, 133, 131,                                       # In..Xe
-    232, 196,                                                           # Cs Ba
-    180, 163, 176, 174, 173, 172, 168, 169, 168, 167, 166, 165, 164,   # La..Tm
-    170, 162,                                                           # Yb Lu
-    152, 146, 137, 131, 129, 122, 123, 124, 133,                        # Hf..Hg
-    144, 144, 151, 145, 147, 142,                                       # Tl..Rn
-    223, 201,                                                           # Fr Ra
-    186, 175, 169, 170, 171, 172, 166, 166, 168, 168, 165, 167, 173,   # Ac..Md
-    176, 161,                                                           # No Lr
-    157, 149, 143, 141, 134, 129, 128, 121, 122,                        # Rf..Cn
-    136, 143, 162, 175, 165, 157,                                       # Nh..Og
+    32,
+    46,  # H  He
+    133,
+    102,
+    85,
+    75,
+    71,
+    63,
+    64,
+    67,  # Li..Ne
+    155,
+    139,
+    126,
+    116,
+    111,
+    103,
+    99,
+    96,  # Na..Ar
+    196,
+    171,  # K  Ca
+    148,
+    136,
+    134,
+    122,
+    119,
+    116,
+    111,
+    110,
+    112,
+    118,  # Sc..Zn
+    124,
+    121,
+    121,
+    116,
+    114,
+    117,  # Ga..Kr
+    210,
+    185,  # Rb Sr
+    163,
+    154,
+    147,
+    138,
+    128,
+    125,
+    125,
+    120,
+    128,
+    136,  # Y..Cd
+    142,
+    140,
+    140,
+    136,
+    133,
+    131,  # In..Xe
+    232,
+    196,  # Cs Ba
+    180,
+    163,
+    176,
+    174,
+    173,
+    172,
+    168,
+    169,
+    168,
+    167,
+    166,
+    165,
+    164,  # La..Tm
+    170,
+    162,  # Yb Lu
+    152,
+    146,
+    137,
+    131,
+    129,
+    122,
+    123,
+    124,
+    133,  # Hf..Hg
+    144,
+    144,
+    151,
+    145,
+    147,
+    142,  # Tl..Rn
+    223,
+    201,  # Fr Ra
+    186,
+    175,
+    169,
+    170,
+    171,
+    172,
+    166,
+    166,
+    168,
+    168,
+    165,
+    167,
+    173,  # Ac..Md
+    176,
+    161,  # No Lr
+    157,
+    149,
+    143,
+    141,
+    134,
+    129,
+    128,
+    121,
+    122,  # Rf..Cn
+    136,
+    143,
+    162,
+    175,
+    165,
+    157,  # Nh..Og
 )
 
 # Fallback radius (in Angstrom) for anything outside the table (e.g. dummy
@@ -97,10 +196,10 @@ _VDW_OFFSET_A = 0.90
 # made much stiffer than angles, which are stiffer than the torsion, improper
 # and weak vdW terms, so minimized geometries are dominated by the bonded
 # topology.
-_K_BOND = 700.0    # energy / Angstrom^2
-_K_ANGLE = 120.0   # energy / radian^2
-_K_OOP = 40.0      # energy / radian^2, on the angle-sum around sp2 centers
-_VDW_EPS = 0.10    # LJ well depth (energy) for the reference atom (carbon)
+_K_BOND = 700.0  # energy / Angstrom^2
+_K_ANGLE = 120.0  # energy / radian^2
+_K_OOP = 40.0  # energy / radian^2, on the angle-sum around sp2 centers
+_VDW_EPS = 0.10  # LJ well depth (energy) for the reference atom (carbon)
 _VDW_14_SCALE = 0.5  # conventional scaling of 1-4 LJ interactions
 # Distance beyond which the (short-range) LJ term is dropped from the pair
 # list. At 12 A a carbon-carbon LJ is ~1e-4 of the well depth, so truncation
@@ -124,8 +223,8 @@ _EPS_RADIUS_REF = 0.75
 
 # Per-bond torsional barriers (energy), split evenly across all dihedrals
 # sharing the central bond, so the barrier does not grow with substitution.
-_V_TORSION_SP3 = 2.0    # sp3-sp3: 3-fold, staggered minima
-_V_TORSION_SP2 = 10.0   # sp2-sp2: 2-fold, planar minima (double/conjugated)
+_V_TORSION_SP3 = 2.0  # sp3-sp3: 3-fold, staggered minima
+_V_TORSION_SP2 = 10.0  # sp2-sp2: 2-fold, planar minima (double/conjugated)
 _V_TORSION_MIXED = 0.5  # sp2-sp3: 6-fold, nearly free rotation
 
 # Bond-order rest-length shortening. Anchored to typical carbon homolytic
@@ -146,16 +245,16 @@ _BOND_ORDER_ANCHORS = ((1.0, 1.00), (2.0, 0.89), (3.0, 0.78))
 # is capped so that even very ionic pairs (alkali halides) contract by a
 # bounded amount rather than collapsing: Na-F lands at 1.99 A (gas 1.93),
 # not the unphysical value an uncapped quadratic would give.
-_POLAR_CONTRACTION_CHI0 = 2.0     # AR-chi difference below which no contraction
-_POLAR_CONTRACTION_COEF = 0.157   # A per (delta-chi - chi0)^2; tuned to Si-O
-_POLAR_CONTRACTION_CAP = 0.20     # max contraction (Angstrom)
+_POLAR_CONTRACTION_CHI0 = 2.0  # AR-chi difference below which no contraction
+_POLAR_CONTRACTION_COEF = 0.157  # A per (delta-chi - chi0)^2; tuned to Si-O
+_POLAR_CONTRACTION_CAP = 0.20  # max contraction (Angstrom)
 
 # --- Optional "electronic effects" parameters --------------------------------
 
 # Coulomb constant in the internal (kcal/mol-like) energy scale, per e^2/A.
 _K_COULOMB = 332.07
-_ELEC_14_SCALE = 0.5   # scaling of 1-4 electrostatic interactions
-_EV_COULOMB = 14.4     # e^2/(4 pi eps0), in eV*Angstrom, for the QEq solve
+_ELEC_14_SCALE = 0.5  # scaling of 1-4 electrostatic interactions
+_EV_COULOMB = 14.4  # e^2/(4 pi eps0), in eV*Angstrom, for the QEq solve
 # Approximate Pauling -> Mulliken (eV) electronegativity conversion.
 _CHI_EV_PER_PAULING = 2.27
 # Bare electronegativity equalization is known to over-polarize: it allows
@@ -210,8 +309,8 @@ _GEOMETRY_CIS_TRANS: Dict[str, int] = {
     "square_planar": 2,
     "octahedral": 3,
 }
-_VALID_GEOMETRIES: frozenset = (
-    frozenset(_GEOMETRY_FIXED_ANGLE_DEG) | frozenset(_GEOMETRY_CIS_TRANS)
+_VALID_GEOMETRIES: frozenset = frozenset(_GEOMETRY_FIXED_ANGLE_DEG) | frozenset(
+    _GEOMETRY_CIS_TRANS
 )
 
 
@@ -238,11 +337,11 @@ _MORSE_DEPTH_FACTOR = 0.08
 # H-bond correction: D−H···A geometry-dependent attraction.
 # Energy: eps * [(R₀/r)^12 − 2(R₀/r)^6] * cos²(θ_{DHA})
 # where r = H···A distance, θ_{DHA} = angle at H.
-_HBOND_DONORS = frozenset({7, 8, 9, 16})     # N  O  F  S as donors
+_HBOND_DONORS = frozenset({7, 8, 9, 16})  # N  O  F  S as donors
 _HBOND_ACCEPTORS = frozenset({7, 8, 9, 16})  # N  O  F  S as acceptors
-_HBOND_CUTOFF_A = 4.5   # max H···A distance included in the triplet list (Å)
-_HBOND_R0_A = 2.0       # equilibrium H···A distance (Å)
-_HBOND_EPS = 3.0        # well depth at ideal (linear, r=R₀) H-bond (energy units)
+_HBOND_CUTOFF_A = 4.5  # max H···A distance included in the triplet list (Å)
+_HBOND_R0_A = 2.0  # equilibrium H···A distance (Å)
+_HBOND_EPS = 3.0  # well depth at ideal (linear, r=R₀) H-bond (energy units)
 
 # Dispersion correction: Becke-Johnson damped C₆/r⁶ added on top of the LJ.
 # V_disp = −c₆ / (r⁶ + r₀⁶), where c₆ = _DISP_S6 · 2 · ε_LJ · rmin⁶
@@ -254,9 +353,24 @@ _DISP_S6 = 0.15
 
 # Aufbau filling order as (n, l, capacity), for Slater's rules.
 _AUFBAU: Tuple[Tuple[int, int, int], ...] = (
-    (1, 0, 2), (2, 0, 2), (2, 1, 6), (3, 0, 2), (3, 1, 6), (4, 0, 2),
-    (3, 2, 10), (4, 1, 6), (5, 0, 2), (4, 2, 10), (5, 1, 6), (6, 0, 2),
-    (4, 3, 14), (5, 2, 10), (6, 1, 6), (7, 0, 2), (5, 3, 14), (6, 2, 10),
+    (1, 0, 2),
+    (2, 0, 2),
+    (2, 1, 6),
+    (3, 0, 2),
+    (3, 1, 6),
+    (4, 0, 2),
+    (3, 2, 10),
+    (4, 1, 6),
+    (5, 0, 2),
+    (4, 2, 10),
+    (5, 1, 6),
+    (6, 0, 2),
+    (4, 3, 14),
+    (5, 2, 10),
+    (6, 1, 6),
+    (7, 0, 2),
+    (5, 3, 14),
+    (6, 2, 10),
     (7, 1, 6),
 )
 
@@ -284,8 +398,8 @@ _DEFAULT_ANGLE_DEG = 109.47
 # the four sp3 electron domains: ``lone_pairs = 4 - coordination``, so this
 # also does the right thing for charged centers (NH4+ has CN 4 -> 0 lone
 # pairs -> 109.47; H3O+ has CN 3 -> 1 lone pair -> mildly pyramidal).
-_PNICTOGENS = frozenset({7, 15, 33, 51, 83, 115})   # N  P  As Sb Bi Mc
-_CHALCOGENS = frozenset({8, 16, 34, 52, 84, 116})   # O  S  Se Te Po Lv
+_PNICTOGENS = frozenset({7, 15, 33, 51, 83, 115})  # N  P  As Sb Bi Mc
+_CHALCOGENS = frozenset({8, 16, 34, 52, 84, 116})  # O  S  Se Te Po Lv
 _LONE_PAIR_ELEMENTS = _PNICTOGENS | _CHALCOGENS
 # Period-2 centers (N, O) hybridize well: each lone pair costs ~2.5 deg,
 # giving NH3 ~107 and H2O ~104.5, matching experiment. Heavier congeners
@@ -414,8 +528,8 @@ def bond_rest_length(z_i: int, z_j: int, order: float = 1.0) -> float:
     single-bond length before the order scaling, so a polar multiple bond
     (P=O, S=O) inherits both effects.
     """
-    base = covalent_radius(z_i) + covalent_radius(z_j) - polar_bond_contraction(
-        z_i, z_j
+    base = (
+        covalent_radius(z_i) + covalent_radius(z_j) - polar_bond_contraction(z_i, z_j)
     )
     return base * bond_order_factor(order)
 
@@ -467,9 +581,7 @@ def hardness(atomic_number: int) -> float:
     """Chemical hardness (eV): the self-Coulomb of a sphere of the covalent
     radius, which resists piling charge onto small atoms. Scaled up by
     :data:`_QEQ_HARDNESS_SCALE` to damp QEq's tendency to over-polarize."""
-    return (
-        _QEQ_HARDNESS_SCALE * _EV_COULOMB / (2.0 * covalent_radius(atomic_number))
-    )
+    return _QEQ_HARDNESS_SCALE * _EV_COULOMB / (2.0 * covalent_radius(atomic_number))
 
 
 def qeq_charges(
@@ -734,9 +846,7 @@ def _pairs_within(coords: np.ndarray, cutoff: float) -> List[Tuple[int, int]]:
                 ia, ib = np.triu_indices(len(home), k=1)
                 aa, bb = home[ia], home[ib]
             else:
-                other = cells.get(
-                    (key[0] + off[0], key[1] + off[1], key[2] + off[2])
-                )
+                other = cells.get((key[0] + off[0], key[1] + off[1], key[2] + off[2]))
                 if other is None:
                     continue
                 aa = np.repeat(home, len(other))
@@ -758,9 +868,7 @@ def _vdw_pair(
 ) -> Tuple[int, int, float, float]:
     """Return the (i, j, rmin, eps) LJ parameters for one non-bonded pair."""
     rmin = vdw_radius(atomic_numbers[i]) + vdw_radius(atomic_numbers[j])
-    eps = math.sqrt(
-        vdw_epsilon(atomic_numbers[i]) * vdw_epsilon(atomic_numbers[j])
-    )
+    eps = math.sqrt(vdw_epsilon(atomic_numbers[i]) * vdw_epsilon(atomic_numbers[j]))
     if is14:
         eps *= _VDW_14_SCALE
     return (i, j, rmin, eps)
@@ -775,7 +883,7 @@ def _disp_pair(
     scaled by _DISP_S6 so the correction is a fraction of the LJ well).
     r₀⁶ = rmin⁶  (BJ damping radius equals the LJ equilibrium separation).
     """
-    r0_6 = rmin ** 6
+    r0_6 = rmin**6
     return (i, j, _DISP_S6 * 2.0 * eps * r0_6, r0_6)
 
 
@@ -830,8 +938,7 @@ def refresh_vdw_pairs(topo: Topology, coords: np.ndarray) -> None:
     # Rebuild dispersion pairs from the refreshed LJ list when active.
     if topo.disp_pairs:
         topo.disp_pairs = [
-            _disp_pair(i, j, rmin, eps)
-            for i, j, rmin, eps in topo.vdw_pairs
+            _disp_pair(i, j, rmin, eps) for i, j, rmin, eps in topo.vdw_pairs
         ]
     # The compiled-array cache is keyed on term-list lengths only; a refresh
     # can swap pairs without changing the count, so drop it explicitly.
@@ -1023,15 +1130,13 @@ def build_topology(
             # to all pairs and the force network stalls.
             _sq: List[Tuple[float, int, int]] = []
             for _ai, _la in enumerate(nbrs):
-                for _lb in nbrs[_ai + 1:]:
+                for _lb in nbrs[_ai + 1 :]:
                     _r1 = _coords[_la] - _coords[j]
                     _r2 = _coords[_lb] - _coords[j]
                     _n1 = float(np.linalg.norm(_r1))
                     _n2 = float(np.linalg.norm(_r2))
                     if _n1 > 1e-9 and _n2 > 1e-9:
-                        _ct = float(np.clip(
-                            np.dot(_r1, _r2) / (_n1 * _n2), -1.0, 1.0
-                        ))
+                        _ct = float(np.clip(np.dot(_r1, _r2) / (_n1 * _n2), -1.0, 1.0))
                     else:
                         _ct = 0.0
                     _sq.append((math.acos(_ct), _la, _lb))
@@ -1063,14 +1168,13 @@ def build_topology(
         else:
             theta0 = _SQ_PLANAR_T0  # sentinel: used only when _trans_pairs is None
         for a, atom_a in enumerate(nbrs):
-            for atom_b in nbrs[a + 1:]:
+            for atom_b in nbrs[a + 1 :]:
                 if fixed_target is not None:
                     target = fixed_target
                 elif is_special_metal:
                     if _trans_pairs is not None:
                         target = (
-                            math.pi if (atom_a, atom_b) in _trans_pairs
-                            else math.pi / 2
+                            math.pi if (atom_a, atom_b) in _trans_pairs else math.pi / 2
                         )
                     else:
                         target = _SQ_PLANAR_T0
@@ -1092,9 +1196,7 @@ def build_topology(
                         # angles share one minimum (e.g. 60 deg in cyclopropane).
                         r1 = rest_length[(min(atom_a, j), max(atom_a, j))]
                         r2 = rest_length[(min(atom_b, j), max(atom_b, j))]
-                        r3 = rest_length[
-                            (min(atom_a, atom_b), max(atom_a, atom_b))
-                        ]
+                        r3 = rest_length[(min(atom_a, atom_b), max(atom_a, atom_b))]
                         cos_t = (r1 * r1 + r2 * r2 - r3 * r3) / (2.0 * r1 * r2)
                         target = math.acos(max(-1.0, min(1.0, cos_t)))
                 topo.angles.append((atom_a, j, atom_b, target))
@@ -1117,7 +1219,10 @@ def build_topology(
         ends_i = [a for a in sorted(neighbors[j]) if a != k]
         ends_l = [d for d in sorted(neighbors[k]) if d != j]
         paths = [
-            (i, l) for i in ends_i for l in ends_l if i != l  # skip 3-rings
+            (i, l)
+            for i in ends_i
+            for l in ends_l
+            if i != l  # skip 3-rings
         ]
         if not paths:
             continue
@@ -1180,9 +1285,7 @@ def build_topology(
                     )
 
     if charges is not None:
-        topo.elec_pairs = _elec_pair_list(
-            atomic_numbers, charges, excluded, pairs14
-        )
+        topo.elec_pairs = _elec_pair_list(atomic_numbers, charges, excluded, pairs14)
 
     # H-bond triplets: D−H···A where D and A are in _HBOND_DONORS/ACCEPTORS.
     # Detection uses coords for the distance filter; if coords are absent the
@@ -1192,7 +1295,8 @@ def build_topology(
             if atomic_numbers[_h] != 1:
                 continue
             _donors = [
-                _d for _d in sorted(neighbors[_h])
+                _d
+                for _d in sorted(neighbors[_h])
                 if atomic_numbers[_d] in _HBOND_DONORS
             ]
             if not _donors:
@@ -1206,15 +1310,16 @@ def build_topology(
                 if (min(_h, _a), max(_h, _a)) in excluded:
                     continue
                 if float(np.linalg.norm(_coords[_h] - _coords[_a])) <= _HBOND_CUTOFF_A:
-                    topo.hbond_triplets.append((_donor, _h, _a, _HBOND_EPS, _HBOND_R0_A))
+                    topo.hbond_triplets.append(
+                        (_donor, _h, _a, _HBOND_EPS, _HBOND_R0_A)
+                    )
 
     # Dispersion correction pairs: same pair set as the LJ Verlet list, with
     # BJ-damped C₆ coefficients computed from the LJ parameters. Rebuilt on
     # each Verlet refresh (see refresh_vdw_pairs).
     if use_dispersion:
         topo.disp_pairs = [
-            _disp_pair(i, j, rmin, eps)
-            for i, j, rmin, eps in topo.vdw_pairs
+            _disp_pair(i, j, rmin, eps) for i, j, rmin, eps in topo.vdw_pairs
         ]
 
     return topo
@@ -1223,9 +1328,7 @@ def build_topology(
 # --- Energy & analytical gradient -------------------------------------------
 
 
-def _switch(
-    r: np.ndarray, r_on: float, r_off: float
-) -> Tuple[np.ndarray, np.ndarray]:
+def _switch(r: np.ndarray, r_on: float, r_off: float) -> Tuple[np.ndarray, np.ndarray]:
     """CHARMM-style switching factor and its derivative for distances *r*.
 
     Returns (S, dS/dr) where ``S`` is 1 below *r_on*, falls smoothly to 0 at
@@ -1267,12 +1370,8 @@ def _bend_terms(
     theta = np.arccos(cos_t)
 
     zero = np.where(safe, 1.0, 0.0)[:, None]
-    dcos_di = zero * (
-        rkj / (nij * nkj)[:, None] - (cos_t / nij**2)[:, None] * rij
-    )
-    dcos_dk = zero * (
-        rij / (nij * nkj)[:, None] - (cos_t / nkj**2)[:, None] * rkj
-    )
+    dcos_di = zero * (rkj / (nij * nkj)[:, None] - (cos_t / nij**2)[:, None] * rij)
+    dcos_dk = zero * (rij / (nij * nkj)[:, None] - (cos_t / nkj**2)[:, None] * rkj)
     return theta, cos_t, dcos_di, dcos_dk
 
 
@@ -1312,8 +1411,14 @@ def energy_and_gradient(
     arrays = topo.compiled()
     if components is not None:
         components.update(
-            bond=0.0, angle=0.0, torsion=0.0, oop=0.0,
-            vdw=0.0, elec=0.0, hbond=0.0, disp=0.0,
+            bond=0.0,
+            angle=0.0,
+            torsion=0.0,
+            oop=0.0,
+            vdw=0.0,
+            elec=0.0,
+            hbond=0.0,
+            disp=0.0,
         )
 
     def _record(name: str, e_term: float) -> float:
@@ -1336,7 +1441,7 @@ def energy_and_gradient(
             r0 = arrays["bond_r0"]
             morse_d = _MORSE_DEPTH_FACTOR * k * r0
             alpha = np.sqrt(k / (2.0 * morse_d))
-            x_term = np.exp(-alpha * diff)   # e^{−α Δr}
+            x_term = np.exp(-alpha * diff)  # e^{−α Δr}
             energy += _record("bond", float(np.sum(morse_d * (1.0 - x_term) ** 2)))
             de_dr = 2.0 * morse_d * alpha * x_term * (1.0 - x_term)
         else:
@@ -1379,9 +1484,7 @@ def energy_and_gradient(
             ),
         )
         sin_t = np.sqrt(np.maximum(1.0 - cos_t * cos_t, 1e-12))
-        de_dcos = np.where(
-            linear, _K_ANGLE, -_K_ANGLE * dtheta / sin_t
-        )[:, None]
+        de_dcos = np.where(linear, _K_ANGLE, -_K_ANGLE * dtheta / sin_t)[:, None]
         gi = de_dcos * dcos_di
         gk = de_dcos * dcos_dk
         np.add.at(grad, ii, gi)
@@ -1442,9 +1545,7 @@ def energy_and_gradient(
         delta = -2.0 * math.pi * np.ones(len(oops))
         parts = []
         for c1, c2 in ((1, 2), (2, 3), (1, 3)):
-            theta, dth_d1, dth_d2 = _angle_terms(
-                coords, oops[:, c1], jj, oops[:, c2]
-            )
+            theta, dth_d1, dth_d2 = _angle_terms(coords, oops[:, c1], jj, oops[:, c2])
             delta += theta
             parts.append((oops[:, c1], oops[:, c2], dth_d1, dth_d2))
         energy += _record("oop", 0.5 * _K_OOP * float(np.sum(delta * delta)))
@@ -1500,9 +1601,9 @@ def energy_and_gradient(
     # bent H-bonds smoothly to zero. Donors and acceptors: N, O, F, S.
     hbond_dha = arrays["hbond_dha"]
     if len(hbond_dha):
-        dd = hbond_dha[:, 0]   # donor D
-        hh = hbond_dha[:, 1]   # hydrogen H (vertex of the D-H-A angle)
-        aa = hbond_dha[:, 2]   # acceptor A
+        dd = hbond_dha[:, 0]  # donor D
+        hh = hbond_dha[:, 1]  # hydrogen H (vertex of the D-H-A angle)
+        aa = hbond_dha[:, 2]  # acceptor A
         eps_hb = arrays["hbond_eps"]
         r0_hb = arrays["hbond_r0"]
         d_HA = coords[hh] - coords[aa]
@@ -1535,12 +1636,12 @@ def energy_and_gradient(
     if len(disp_ij):
         d_disp = coords[disp_ij[:, 0]] - coords[disp_ij[:, 1]]
         r_disp = np.maximum(np.linalg.norm(d_disp, axis=1), 1e-6)
-        r6_disp = r_disp ** 6
+        r6_disp = r_disp**6
         c6 = arrays["disp_c6"]
         r0_6 = arrays["disp_r0_6"]
         denom = r6_disp + r0_6
         energy += _record("disp", float(np.sum(-c6 / denom)))
-        de_dr = c6 * 6.0 * r_disp ** 5 / (denom * denom)
+        de_dr = c6 * 6.0 * r_disp**5 / (denom * denom)
         g_d = (de_dr / r_disp)[:, None] * d_disp
         np.add.at(grad, disp_ij[:, 0], g_d)
         np.add.at(grad, disp_ij[:, 1], -g_d)
@@ -1561,9 +1662,7 @@ def energy_components(coords: np.ndarray, topo: Topology) -> Dict[str, float]:
     return comp
 
 
-def hessian(
-    coords: np.ndarray, topo: Topology, step: float = 1e-4
-) -> np.ndarray:
+def hessian(coords: np.ndarray, topo: Topology, step: float = 1e-4) -> np.ndarray:
     """Return the (3N, 3N) Hessian at *coords* under *topo*.
 
     Central finite differences of the *analytical* gradient (2 gradient
@@ -1628,8 +1727,8 @@ class OptimizeResult:
 # value: FIRE is robust through clashes and rearrangements, L-BFGS converges
 # superlinearly in the near-quadratic basin where FIRE crawls.
 _LBFGS_CROSSOVER = 1.0
-_LBFGS_HISTORY = 10       # stored (s, y) curvature pairs
-_LBFGS_ARMIJO = 1e-4      # sufficient-decrease constant for the line search
+_LBFGS_HISTORY = 10  # stored (s, y) curvature pairs
+_LBFGS_ARMIJO = 1e-4  # sufficient-decrease constant for the line search
 _LBFGS_MAX_BACKTRACKS = 20
 
 
@@ -1775,9 +1874,7 @@ def _lbfgs_phase(
         # Two-loop recursion: q becomes the quasi-Newton direction H^-1 g.
         q = grad.ravel().copy()
         alphas: List[float] = []
-        for s, y, r in zip(
-            reversed(s_hist), reversed(y_hist), reversed(rho)
-        ):
+        for s, y, r in zip(reversed(s_hist), reversed(y_hist), reversed(rho)):
             a = r * float(s @ q)
             alphas.append(a)
             q -= a * y
@@ -1787,9 +1884,7 @@ def _lbfgs_phase(
         else:
             # First step: steepest descent, normalized to unit total length.
             q /= max(float(np.linalg.norm(q)), 1e-12)
-        for (s, y, r), a in zip(
-            zip(s_hist, y_hist, rho), reversed(alphas)
-        ):
+        for (s, y, r), a in zip(zip(s_hist, y_hist, rho), reversed(alphas)):
             b = r * float(y @ q)
             q += s * (a - b)
         d = -q.reshape(x.shape)
@@ -1886,8 +1981,14 @@ def optimize(
     steps = 0
     budget = max_iter
     x, energy, grad, used = _fire_phase(
-        x, topo, refresh, energy, grad, budget,
-        max(_LBFGS_CROSSOVER, f_tol), max_step,
+        x,
+        topo,
+        refresh,
+        energy,
+        grad,
+        budget,
+        max(_LBFGS_CROSSOVER, f_tol),
+        max_step,
     )
     steps += used
     budget -= used
@@ -1931,9 +2032,7 @@ def topology_from_rdkit(
     coordination geometry of individual atoms — see :func:`build_topology`.
     """
     atomic_numbers = [atom.GetAtomicNum() for atom in mol.GetAtoms()]
-    bond_pairs = [
-        (b.GetBeginAtomIdx(), b.GetEndAtomIdx()) for b in mol.GetBonds()
-    ]
+    bond_pairs = [(b.GetBeginAtomIdx(), b.GetEndAtomIdx()) for b in mol.GetBonds()]
     bond_orders: List[float] = []
     for b in mol.GetBonds():
         try:
@@ -2037,8 +2136,11 @@ def compute_energy_components(
     if coords is None:
         return None
     topo = topology_from_rdkit(
-        mol, electronic_effects=electronic_effects,
-        use_morse=use_morse, use_dispersion=use_dispersion, use_hbond=use_hbond,
+        mol,
+        electronic_effects=electronic_effects,
+        use_morse=use_morse,
+        use_dispersion=use_dispersion,
+        use_hbond=use_hbond,
         use_polar_contraction=use_polar_contraction,
         geometry_overrides=geometry_overrides,
     )
@@ -2065,8 +2167,11 @@ def check_minimum(
     if coords is None:
         return None
     topo = topology_from_rdkit(
-        mol, electronic_effects=electronic_effects,
-        use_morse=use_morse, use_dispersion=use_dispersion, use_hbond=use_hbond,
+        mol,
+        electronic_effects=electronic_effects,
+        use_morse=use_morse,
+        use_dispersion=use_dispersion,
+        use_hbond=use_hbond,
         use_polar_contraction=use_polar_contraction,
         geometry_overrides=geometry_overrides,
     )
@@ -2099,8 +2204,11 @@ def optimize_rdkit_mol(
         return False, None
 
     topo = topology_from_rdkit(
-        mol, electronic_effects=electronic_effects,
-        use_morse=use_morse, use_dispersion=use_dispersion, use_hbond=use_hbond,
+        mol,
+        electronic_effects=electronic_effects,
+        use_morse=use_morse,
+        use_dispersion=use_dispersion,
+        use_hbond=use_hbond,
         use_polar_contraction=use_polar_contraction,
         geometry_overrides=geometry_overrides,
     )

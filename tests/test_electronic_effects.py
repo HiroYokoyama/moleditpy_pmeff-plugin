@@ -24,9 +24,9 @@ from tests.test_forcefield import _numeric_gradient
 
 
 def test_slater_zeff_known_values():
-    assert ff.slater_zeff(1) == pytest.approx(1.0)     # H: no screening
-    assert ff.slater_zeff(6) == pytest.approx(3.25)    # C: 6 - 3*0.35 - 2*0.85
-    assert ff.slater_zeff(9) == pytest.approx(5.20)    # F: 9 - 6*0.35 - 2*0.85
+    assert ff.slater_zeff(1) == pytest.approx(1.0)  # H: no screening
+    assert ff.slater_zeff(6) == pytest.approx(3.25)  # C: 6 - 3*0.35 - 2*0.85
+    assert ff.slater_zeff(9) == pytest.approx(5.20)  # F: 9 - 6*0.35 - 2*0.85
 
 
 def test_electronegativity_trends():
@@ -196,9 +196,7 @@ def test_flattened_tetrahedron_relaxes_to_square_planar():
     r0 = topo.bonds[0][2]
     # Tetrahedral directions squashed along z: breaks the symmetry toward
     # planarity without starting anywhere near the answer.
-    dirs = np.array(
-        [[1, 1, 0.5], [1, -1, -0.5], [-1, 1, -0.5], [-1, -1, 0.5]], float
-    )
+    dirs = np.array([[1, 1, 0.5], [1, -1, -0.5], [-1, 1, -0.5], [-1, -1, 0.5]], float)
     dirs /= np.linalg.norm(dirs, axis=1)[:, None]
     coords = np.vstack([[0.0, 0.0, 0.0], r0 * dirs])
     out, result = ff.optimize(coords, topo, max_iter=3000)
@@ -273,9 +271,7 @@ def test_optimizer_passes_electronic_effects_flag(settings_file, monkeypatch):
         seen.update(kwargs)
         return True, None
 
-    monkeypatch.setattr(
-        "pmeff_plugin.forcefield.optimize_rdkit_mol", fake_optimize
-    )
+    monkeypatch.setattr("pmeff_plugin.forcefield.optimize_rdkit_mol", fake_optimize)
     callback = ctx.register_optimization_method.call_args[0][1]
     assert callback(object()) is True
     assert seen["electronic_effects"] is True
