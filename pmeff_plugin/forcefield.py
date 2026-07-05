@@ -186,6 +186,47 @@ _OCTAHEDRAL_METALS = (
     frozenset(range(21, 31)) | frozenset(range(39, 49)) | frozenset(range(57, 81))
 )
 
+# Per-atom coordination-geometry overrides.
+#
+# By default PMEFF picks each center's ideal bond angles from its hybridization
+# (or, for the auto-detected d-block metals above, from square-planar /
+# octahedral trans/cis targets). A caller may instead *force* the geometry of
+# any individual atom via the ``geometry_overrides`` argument of
+# :func:`build_topology` — a mapping ``{atom_index: name}``. This is intended
+# chiefly for metal centers, whose coordination geometry connectivity alone
+# cannot determine. Overrides are entirely opt-in: an atom with no entry keeps
+# the default behavior exactly, so the shipped defaults are unchanged.
+#
+# The fixed-angle geometries apply a single ideal L-M-L angle to every ligand
+# pair; the cis/trans geometries reuse the coordinate-based greedy trans-pair
+# assignment already used by the auto metal targets.
+_GEOMETRY_FIXED_ANGLE_DEG: Dict[str, float] = {
+    "linear": 180.0,
+    "trigonal_planar": 120.0,
+    "tetrahedral": 109.47122063449069,  # arccos(-1/3)
+}
+# Cis/trans geometries → number of trans (180°) ligand pairs to assign.
+_GEOMETRY_CIS_TRANS: Dict[str, int] = {
+    "square_planar": 2,
+    "octahedral": 3,
+}
+_VALID_GEOMETRIES: frozenset = (
+    frozenset(_GEOMETRY_FIXED_ANGLE_DEG) | frozenset(_GEOMETRY_CIS_TRANS)
+)
+
+
+def _normalize_geometry(name: object) -> Optional[str]:
+    """Return the canonical geometry key for *name*, or None if unrecognized.
+
+    Accepts case-insensitive names with spaces or hyphens (e.g. "Square Planar",
+    "square-planar" → "square_planar"), so UI labels can be passed through.
+    """
+    if name is None:
+        return None
+    key = str(name).strip().lower().replace(" ", "_").replace("-", "_")
+    return key if key in _VALID_GEOMETRIES else None
+
+
 # Morse bond potential: V = D(1 − e^{−α(r−r₀)})²
 # D = _MORSE_DEPTH_FACTOR * k * r₀  →  α = sqrt(k / 2D)
 # Curvature at r₀ equals the harmonic (k = 2Dα²); energy is bounded above
@@ -834,6 +875,7 @@ def build_topology(
     use_dispersion: bool = False,
     use_hbond: bool = False,
     use_polar_contraction: bool = True,
+    geometry_overrides: Optional[Dict[int, str]] = None,
 ) -> Topology:
     """Assemble a :class:`Topology` from connectivity alone.
 
@@ -871,6 +913,16 @@ def build_topology(
             lengths by the electronegativity-difference contraction
             (:func:`bond_rest_length`); when False, use the plain covalent
             radius sum.
+        geometry_overrides: Optional ``{atom_index: name}`` mapping forcing the
+            coordination geometry of individual atoms (chiefly metal centers).
+            Recognized names are ``"linear"`` (180°), ``"trigonal_planar"``
+            (120°, kept planar), ``"tetrahedral"`` (109.47°), ``"square_planar"``
+            and ``"octahedral"`` (coordinate-based cis 90° / trans 180° targets,
+            like the auto metal geometries). Names are case/space/hyphen
+            insensitive; unknown names and out-of-range indices are ignored. An
+            atom with no entry keeps its default (hybridization- or
+            auto-metal-derived) angles, so this argument never changes behavior
+            unless a center is explicitly listed.
     """
     n = len(atomic_numbers)
     neighbors: List[set] = [set() for _ in range(n)]
@@ -917,23 +969,48 @@ def build_topology(
     rest_length = {(i, j): r0 for i, j, r0, _k in topo.bonds}
     _coords = np.asarray(coords, dtype=float) if coords is not None else None
 
+    # Canonicalize per-atom geometry overrides once (drop unknown names and
+    # out-of-range indices). Empty when none supplied → default behavior.
+    _geom_ovr: Dict[int, str] = {}
+    if geometry_overrides:
+        for _idx, _name in geometry_overrides.items():
+            try:
+                _i = int(_idx)
+            except (TypeError, ValueError):
+                continue
+            _canon = _normalize_geometry(_name)
+            if _canon is not None and 0 <= _i < n:
+                _geom_ovr[_i] = _canon
+
     for j in range(n):
         nbrs = sorted(neighbors[j])
         if len(nbrs) < 2:
             continue
-        is_sq_planar = (
-            square_planar_metals
+        override = _geom_ovr.get(j)
+        # A fixed-angle override forces one ideal L-M-L angle on every pair.
+        fixed_target: Optional[float] = None
+        if override is not None and override in _GEOMETRY_FIXED_ANGLE_DEG:
+            fixed_target = math.radians(_GEOMETRY_FIXED_ANGLE_DEG[override])
+        # Cis/trans geometry: an explicit square-planar/octahedral override, or
+        # (only when no override is set) the auto-detected d-block metal targets.
+        is_sq_planar = override == "square_planar" or (
+            override is None
+            and square_planar_metals
             and len(nbrs) == 4
             and atomic_numbers[j] in _SQUARE_PLANAR_METALS
         )
-        is_octahedral = (
-            square_planar_metals
+        is_octahedral = override == "octahedral" or (
+            override is None
+            and square_planar_metals
             and len(nbrs) == 6
             and atomic_numbers[j] in _OCTAHEDRAL_METALS
         )
         is_special_metal = is_sq_planar or is_octahedral
-        # Square-planar: 2 trans pairs (π); octahedral: 3 trans pairs (π).
-        n_trans = 2 if is_sq_planar else (3 if is_octahedral else 0)
+        # Square-planar: 2 trans pairs (π); octahedral: 3 trans pairs (π). An
+        # override fixes the count regardless of coordination number.
+        n_trans = _GEOMETRY_CIS_TRANS.get(override or "", 0) or (
+            2 if is_sq_planar else (3 if is_octahedral else 0)
+        )
         _trans_pairs: Optional[frozenset] = None
         if is_special_metal and _coords is not None and n_trans > 0:
             # Geometry-based trans/cis assignment.
@@ -970,7 +1047,9 @@ def build_topology(
             if len(_selected) == n_trans:
                 _trans_pairs = frozenset(_selected)
         lp_blend: Optional[Tuple[float, float]] = None
-        if not is_special_metal:
+        if fixed_target is not None:
+            theta0 = fixed_target  # every ligand pair shares this ideal angle
+        elif not is_special_metal:
             theta0 = math.radians(
                 _ideal_angle_deg(hyb(j), len(nbrs), atomic_numbers[j])
             )
@@ -985,7 +1064,9 @@ def build_topology(
             theta0 = _SQ_PLANAR_T0  # sentinel: used only when _trans_pairs is None
         for a, atom_a in enumerate(nbrs):
             for atom_b in nbrs[a + 1:]:
-                if is_special_metal:
+                if fixed_target is not None:
+                    target = fixed_target
+                elif is_special_metal:
                     if _trans_pairs is not None:
                         target = (
                             math.pi if (atom_a, atom_b) in _trans_pairs
@@ -1044,12 +1125,20 @@ def build_topology(
         for i, l in paths:
             topo.torsions.append((i, j, k, l, v_each, periodicity, gamma))
 
-    # Out-of-plane: every 3-coordinate sp2 center is kept planar.
+    # Out-of-plane: keep every 3-coordinate sp2 center planar. A geometry
+    # override wins when present — "trigonal_planar" forces planarity, any other
+    # override (e.g. tetrahedral) removes it — so the default (no override) path
+    # is exactly the original sp2 test.
     for j in range(n):
-        if (hyb(j) or "").upper() != "SP2":
-            continue
         nbrs = sorted(neighbors[j])
-        if len(nbrs) == 3:
+        if len(nbrs) != 3:
+            continue
+        override = _geom_ovr.get(j)
+        if override is not None:
+            want_planar = override == "trigonal_planar"
+        else:
+            want_planar = (hyb(j) or "").upper() == "SP2"
+        if want_planar:
             topo.oops.append((j, nbrs[0], nbrs[1], nbrs[2]))
 
     # Non-bonded: every pair separated by more than two bonds (exclude 1-2,
@@ -1829,6 +1918,7 @@ def topology_from_rdkit(
     use_dispersion: bool = False,
     use_hbond: bool = False,
     use_polar_contraction: bool = True,
+    geometry_overrides: Optional[Dict[int, str]] = None,
 ) -> Topology:
     """Build a :class:`Topology` from an RDKit molecule's connectivity.
 
@@ -1837,7 +1927,8 @@ def topology_from_rdkit(
     metal centers get square-planar angle targets, and 6-coordinate d-block
     transition metals get octahedral targets. *use_polar_contraction* (default
     True) shortens polar bond rest lengths by the electronegativity-difference
-    contraction.
+    contraction. *geometry_overrides* (``{atom_index: name}``) forces the
+    coordination geometry of individual atoms — see :func:`build_topology`.
     """
     atomic_numbers = [atom.GetAtomicNum() for atom in mol.GetAtoms()]
     bond_pairs = [
@@ -1876,6 +1967,7 @@ def topology_from_rdkit(
         use_dispersion=use_dispersion,
         use_hbond=use_hbond,
         use_polar_contraction=use_polar_contraction,
+        geometry_overrides=geometry_overrides,
     )
     if charges is not None:
         # Mark the charges as dynamic: the optimizer re-solves them as the
@@ -1906,6 +1998,7 @@ def compute_energy(
     use_dispersion: bool = False,
     use_hbond: bool = False,
     use_polar_contraction: bool = True,
+    geometry_overrides: Optional[Dict[int, str]] = None,
 ) -> Optional[float]:
     """Return the PMEFF single-point energy of *mol*, or None if unavailable.
 
@@ -1921,6 +2014,7 @@ def compute_energy(
         use_dispersion=use_dispersion,
         use_hbond=use_hbond,
         use_polar_contraction=use_polar_contraction,
+        geometry_overrides=geometry_overrides,
     )
     return None if components is None else components["total"]
 
@@ -1932,6 +2026,7 @@ def compute_energy_components(
     use_dispersion: bool = False,
     use_hbond: bool = False,
     use_polar_contraction: bool = True,
+    geometry_overrides: Optional[Dict[int, str]] = None,
 ) -> Optional[Dict[str, float]]:
     """Return the per-term PMEFF energy decomposition of *mol*, or None.
 
@@ -1945,6 +2040,7 @@ def compute_energy_components(
         mol, electronic_effects=electronic_effects,
         use_morse=use_morse, use_dispersion=use_dispersion, use_hbond=use_hbond,
         use_polar_contraction=use_polar_contraction,
+        geometry_overrides=geometry_overrides,
     )
     return energy_components(coords, topo)
 
@@ -1956,6 +2052,7 @@ def check_minimum(
     use_dispersion: bool = False,
     use_hbond: bool = False,
     use_polar_contraction: bool = True,
+    geometry_overrides: Optional[Dict[int, str]] = None,
 ) -> Optional[Dict[str, Any]]:
     """Run a vibrational analysis on *mol*'s current conformer.
 
@@ -1971,6 +2068,7 @@ def check_minimum(
         mol, electronic_effects=electronic_effects,
         use_morse=use_morse, use_dispersion=use_dispersion, use_hbond=use_hbond,
         use_polar_contraction=use_polar_contraction,
+        geometry_overrides=geometry_overrides,
     )
     return vibrational_analysis(coords, topo)
 
@@ -1984,6 +2082,7 @@ def optimize_rdkit_mol(
     use_dispersion: bool = False,
     use_hbond: bool = False,
     use_polar_contraction: bool = True,
+    geometry_overrides: Optional[Dict[int, str]] = None,
 ) -> Tuple[bool, Optional[OptimizeResult]]:
     """Optimize an RDKit molecule's conformer in place with PMEFF.
 
@@ -2003,6 +2102,7 @@ def optimize_rdkit_mol(
         mol, electronic_effects=electronic_effects,
         use_morse=use_morse, use_dispersion=use_dispersion, use_hbond=use_hbond,
         use_polar_contraction=use_polar_contraction,
+        geometry_overrides=geometry_overrides,
     )
     new_coords, result = optimize(coords, topo, max_iter=max_iter, f_tol=f_tol)
 

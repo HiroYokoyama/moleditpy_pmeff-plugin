@@ -72,6 +72,7 @@ def optimize_mol(
     use_hbond: bool = True,
     use_dispersion: bool = False,
     use_polar_contraction: bool = True,
+    geometry_overrides: Optional[dict] = None,
 ) -> Tuple[Any, Optional[OptimizeResult]]:
     """Relax an RDKit ``Mol``'s 3D conformer in place with PMEFF.
 
@@ -84,6 +85,12 @@ def optimize_mol(
 
     The defaults mirror the shipped plugin (electronic effects, Morse bonds,
     H-bonds and the polar-bond contraction on; dispersion off).
+
+    *geometry_overrides* optionally forces the coordination geometry of
+    individual atoms — a ``{atom_index: name}`` mapping where *name* is one of
+    ``"linear"``, ``"trigonal_planar"``, ``"square_planar"``, ``"tetrahedral"``
+    or ``"octahedral"`` (chiefly for metal centers). Atoms not listed keep their
+    default geometry.
     """
     try:
         from .forcefield import optimize_rdkit_mol
@@ -99,6 +106,7 @@ def optimize_mol(
         use_hbond=use_hbond,
         use_dispersion=use_dispersion,
         use_polar_contraction=use_polar_contraction,
+        geometry_overrides=geometry_overrides,
     )
     if not success:
         raise ValueError("PMEFF: molecule has no 3D conformer to optimize")
@@ -118,6 +126,7 @@ def optimize_coords(
     use_hbond: bool = False,
     use_dispersion: bool = False,
     use_polar_contraction: bool = True,
+    geometry_overrides: Optional[dict] = None,
 ) -> Tuple["np.ndarray", OptimizeResult]:
     """Relax a molecule described by plain arrays — no RDKit required.
 
@@ -131,6 +140,9 @@ def optimize_coords(
         bond_orders: Optional per-bond orders aligned with *bonds*.
         charges: Optional per-atom partial charges enabling the Coulomb term;
             omit for none, or use :func:`qeq_charges` to derive them.
+        geometry_overrides: Optional ``{atom_index: name}`` mapping forcing the
+            coordination geometry of individual atoms ("linear",
+            "trigonal_planar", "square_planar", "tetrahedral", "octahedral").
 
     Returns ``(optimized_coords, result)``.
     """
@@ -146,5 +158,6 @@ def optimize_coords(
         use_hbond=use_hbond,
         use_dispersion=use_dispersion,
         use_polar_contraction=use_polar_contraction,
+        geometry_overrides=geometry_overrides,
     )
     return optimize(coords, topo, max_iter=max_iter, f_tol=f_tol)

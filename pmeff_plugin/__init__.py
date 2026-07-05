@@ -27,7 +27,7 @@ import tempfile
 from pathlib import Path
 
 PLUGIN_NAME = "PMEFF Plugin"
-PLUGIN_VERSION = "1.0.5"
+PLUGIN_VERSION = "1.1.0"
 # Must equal the GitHub username (the moleditpy registry enforces this).
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
@@ -72,6 +72,18 @@ logger = logging.getLogger(__name__)
 # optimized with. This is a per-document record only; it does not override the
 # global settings.json read by _settings_kwargs().
 _last_opt_settings = None
+
+# Per-atom coordination-geometry overrides for the current document, mapping
+# ``atom_index -> geometry name`` (see forcefield._VALID_GEOMETRIES). Set via
+# the Metal Geometry Override table, applied by every PMEFF optimize / energy /
+# minimum-check call, persisted into the project file and restored on load,
+# and cleared on File > New. Empty means "no overrides" — default behavior.
+_geometry_overrides: dict = {}
+
+
+def _overrides_kwarg() -> "dict | None":
+    """Return the current geometry overrides for the engine, or None if empty."""
+    return dict(_geometry_overrides) if _geometry_overrides else None
 
 
 def load_settings() -> dict:
@@ -135,24 +147,93 @@ def initialize(context):
         lambda: _open_settings_dialog(context),
         text="PMEFF Settings…",
     )
-    # Persist the last-used optimization options with the project (save only).
+    context.add_menu_action(
+        "3D Edit/PMEFF Metal Geometry Override",
+        lambda: _open_geometry_override_window(context),
+        text="Metal Geometry Override…",
+    )
+    # Persist the last-used optimization options and the per-atom geometry
+    # overrides with the project; restore the overrides on load; forget both on
+    # File > New.
     context.register_save_handler(_save_project_state)
+    context.register_load_handler(_load_project_state)
     context.register_document_reset_handler(_reset_project_state)
 
 
 def _save_project_state() -> dict:
-    """Return the physics options of the last PMEFF optimization for the project.
+    """Return the PMEFF state to persist in the project (``.pmeprj``) file.
 
-    Stored per document in the ``.pmeprj`` file; ``last_opt_settings`` is None
-    when PMEFF has not optimized this document yet.
+    ``last_opt_settings`` is the physics options of the last optimization (None
+    when PMEFF has not optimized this document yet); ``geometry_overrides`` is
+    the per-atom coordination-geometry override table (keyed by atom index as a
+    string, since JSON object keys are strings).
     """
-    return {"last_opt_settings": _last_opt_settings}
+    return {
+        "last_opt_settings": _last_opt_settings,
+        "geometry_overrides": {
+            str(idx): name for idx, name in _geometry_overrides.items()
+        },
+    }
+
+
+def _load_project_state(data: object) -> None:
+    """Restore the per-atom geometry overrides saved with the project."""
+    global _geometry_overrides
+    restored: dict = {}
+    if isinstance(data, dict):
+        raw = data.get("geometry_overrides")
+        if isinstance(raw, dict):
+            for key, name in raw.items():
+                try:
+                    restored[int(key)] = str(name)
+                except (TypeError, ValueError):
+                    continue
+    _geometry_overrides = restored
 
 
 def _reset_project_state() -> None:
-    """Forget the last-optimization snapshot on File > New."""
-    global _last_opt_settings
+    """Forget the last-optimization snapshot and geometry overrides on File > New."""
+    global _last_opt_settings, _geometry_overrides
     _last_opt_settings = None
+    _geometry_overrides = {}
+
+
+def _apply_geometry_overrides(context, overrides: dict) -> None:
+    """Store the geometry-override table applied from the override window.
+
+    Overrides feed every subsequent PMEFF optimize / energy / minimum-check for
+    this document (and are persisted with the project). Nothing is re-optimized
+    here — the user runs Optimize 3D (PMEFF) to apply them to the geometry.
+    """
+    global _geometry_overrides
+    cleaned: dict = {}
+    for idx, name in (overrides or {}).items():
+        try:
+            cleaned[int(idx)] = str(name)
+        except (TypeError, ValueError):
+            continue
+    _geometry_overrides = cleaned
+    n = len(cleaned)
+    if n:
+        _status(
+            context,
+            f"PMEFF: {n} atom geometry override(s) set — run "
+            "Optimize 3D (PMEFF) to apply them.",
+            6000,
+        )
+    else:
+        _status(context, "PMEFF: geometry overrides cleared.", 4000)
+
+
+def _open_geometry_override_window(context) -> None:
+    """Open (or re-show) the modeless Metal Geometry Override table."""
+    from .geometry_override_dialog import open_override_window
+
+    open_override_window(
+        context,
+        dict(_geometry_overrides),
+        lambda ov: _apply_geometry_overrides(context, ov),
+    )
 
 
 def _open_settings_dialog(context) -> None:
@@ -161,7 +242,12 @@ def _open_settings_dialog(context) -> None:
 
     parent = getattr(context, "main_window", None)
     current = load_settings()
-    updated = open_settings_dialog(parent, current, defaults=_DEFAULT_SETTINGS)
+    updated = open_settings_dialog(
+        parent,
+        current,
+        defaults=_DEFAULT_SETTINGS,
+        on_open_geometry=lambda: _open_geometry_override_window(context),
+    )
     if updated is None:
         return  # cancelled or headless
     # Merge: preserve unknown keys the dialog doesn't know about.
@@ -176,7 +262,12 @@ def _optimize(mol, context) -> bool:
 
     kwargs = _settings_kwargs()
     try:
-        success, result = optimize_rdkit_mol(mol, max_iter=_MAX_ITER, **kwargs)
+        success, result = optimize_rdkit_mol(
+            mol,
+            max_iter=_MAX_ITER,
+            geometry_overrides=_overrides_kwarg(),
+            **kwargs,
+        )
     except Exception as exc:  # pragma: no cover - defensive GUI guard
         logger.exception("PMEFF optimization failed")
         _status(context, f"PMEFF optimization failed: {exc}", 5000)
@@ -213,7 +304,9 @@ def _show_energy(context) -> None:
         return
 
     try:
-        comp = compute_energy_components(mol, **_settings_kwargs())
+        comp = compute_energy_components(
+            mol, geometry_overrides=_overrides_kwarg(), **_settings_kwargs()
+        )
     except Exception as exc:  # pragma: no cover - defensive GUI guard
         logger.exception("PMEFF energy evaluation failed")
         _status(context, f"PMEFF energy failed: {exc}", 5000)
@@ -250,7 +343,9 @@ def _check_minimum(context) -> None:
         return
 
     try:
-        result = check_minimum(mol, **_settings_kwargs())
+        result = check_minimum(
+            mol, geometry_overrides=_overrides_kwarg(), **_settings_kwargs()
+        )
     except Exception as exc:  # pragma: no cover - defensive GUI guard
         logger.exception("PMEFF vibrational analysis failed")
         _status(context, f"PMEFF vibrational analysis failed: {exc}", 5000)

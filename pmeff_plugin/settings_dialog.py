@@ -8,11 +8,14 @@ return value of :func:`open_settings_dialog` for None.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Callable, Optional
 
 
 def open_settings_dialog(
-    parent: object, current: dict, defaults: Optional[dict] = None
+    parent: object,
+    current: dict,
+    defaults: Optional[dict] = None,
+    on_open_geometry: Optional[Callable[[], None]] = None,
 ) -> Optional[dict]:
     """Show the PMEFF settings dialog on top of *parent*.
 
@@ -21,6 +24,9 @@ def open_settings_dialog(
 
     *defaults* supplies the values the "Restore Defaults" button resets each
     option to; when omitted, the dialog's own per-option defaults are used.
+
+    *on_open_geometry*, when given, is invoked by a "Metal Geometry Override…"
+    button that opens the per-atom coordination-geometry table.
     """
     try:
         from PyQt6.QtWidgets import (  # type: ignore[import]
@@ -29,6 +35,7 @@ def open_settings_dialog(
             QLabel,
             QVBoxLayout,
             QCheckBox,
+            QPushButton,
         )
         from PyQt6.QtCore import Qt  # type: ignore[import]
     except ImportError:
@@ -110,6 +117,25 @@ def open_settings_dialog(
         "organic C-C/C-O/C-N/C-H untouched. On by default.",
         default=True,
     )
+
+    # Per-atom coordination-geometry override table (chiefly for metals).
+    if on_open_geometry is not None:
+        layout.addSpacing(4)
+        geom_btn = QPushButton("Metal Geometry Override…")
+        geom_btn.setToolTip(
+            "Force the coordination geometry of individual atoms "
+            "(linear, trigonal/square planar, tetrahedral, octahedral)."
+        )
+        geom_btn.clicked.connect(lambda: on_open_geometry())
+        geom_desc = QLabel(
+            "Override the auto-detected geometry of individual metal centers. "
+            "Applied on the next Optimize 3D (PMEFF) and saved with the project."
+        )
+        geom_desc.setWordWrap(True)
+        geom_desc.setContentsMargins(0, 2, 0, 0)
+        geom_desc.setStyleSheet("color: #666; font-size: 10px;")
+        layout.addWidget(geom_btn)
+        layout.addWidget(geom_desc)
 
     layout.addSpacing(8)
     buttons = QDialogButtonBox(

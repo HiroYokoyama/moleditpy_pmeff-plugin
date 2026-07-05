@@ -42,11 +42,20 @@ def test_initialize_registers_method_and_tools():
     }
 
 
+def _menu_paths(ctx):
+    return [c.args[0] for c in ctx.add_menu_action.call_args_list]
+
+
 def test_settings_toggle_lives_under_settings_menu():
     ctx = make_context()
     plugin.initialize(ctx)
-    ctx.add_menu_action.assert_called_once()
-    assert ctx.add_menu_action.call_args[0][0] == "Settings/PMEFF Setting"
+    assert "Settings/PMEFF Setting" in _menu_paths(ctx)
+
+
+def test_geometry_override_menu_registered():
+    ctx = make_context()
+    plugin.initialize(ctx)
+    assert "3D Edit/PMEFF Metal Geometry Override" in _menu_paths(ctx)
 
 
 def test_registered_optimizer_callback_runs():
@@ -105,22 +114,55 @@ def test_minimum_check_tool_handles_no_conformer():
     assert "no 3d" in msg.lower()
 
 
-def test_initialize_registers_save_handler_but_not_load():
+def test_initialize_registers_save_load_and_reset_handlers():
     ctx = make_context()
     plugin.initialize(ctx)
-    # Write-only persistence: a save handler and a document-reset handler are
-    # registered, but deliberately no load handler.
+    # Save + load (to persist and restore per-atom geometry overrides) and a
+    # document-reset handler are all registered.
     ctx.register_save_handler.assert_called_once()
+    ctx.register_load_handler.assert_called_once()
     ctx.register_document_reset_handler.assert_called_once()
-    ctx.register_load_handler.assert_not_called()
 
 
-def test_save_handler_is_none_before_any_optimization():
+def test_save_handler_is_empty_before_any_optimization():
     plugin._last_opt_settings = None
+    plugin._geometry_overrides = {}
     ctx = make_context()
     plugin.initialize(ctx)
     save_cb = ctx.register_save_handler.call_args[0][0]
-    assert save_cb() == {"last_opt_settings": None}
+    assert save_cb() == {"last_opt_settings": None, "geometry_overrides": {}}
+
+
+def test_geometry_overrides_round_trip_through_project():
+    plugin._geometry_overrides = {}
+    ctx = make_context()
+    plugin.initialize(ctx)
+    save_cb = ctx.register_save_handler.call_args[0][0]
+    load_cb = ctx.register_load_handler.call_args[0][0]
+    reset_cb = ctx.register_document_reset_handler.call_args[0][0]
+
+    plugin._geometry_overrides = {0: "square_planar", 3: "octahedral"}
+    # JSON keys are strings on the way out.
+    assert save_cb()["geometry_overrides"] == {"0": "square_planar", "3": "octahedral"}
+
+    reset_cb()
+    assert plugin._geometry_overrides == {}
+
+    # Loading restores integer-keyed overrides from the saved (string-keyed) form.
+    load_cb({"geometry_overrides": {"0": "square_planar", "3": "octahedral"}})
+    assert plugin._geometry_overrides == {0: "square_planar", 3: "octahedral"}
+    reset_cb()
+
+
+def test_apply_geometry_overrides_updates_module_state():
+    plugin._geometry_overrides = {}
+    ctx = make_context()
+    plugin._apply_geometry_overrides(ctx, {2: "linear", "5": "tetrahedral"})
+    assert plugin._geometry_overrides == {2: "linear", 5: "tetrahedral"}
+    ctx.show_status_message.assert_called()
+    plugin._apply_geometry_overrides(ctx, {})
+    assert plugin._geometry_overrides == {}
+    plugin._geometry_overrides = {}
 
 
 def test_save_handler_snapshots_last_optimization_settings():

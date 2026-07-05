@@ -253,9 +253,8 @@ def test_save_load_roundtrip_all_settings_keys(settings_file):
 def test_settings_menu_action_registered(settings_file):
     ctx = make_context()
     plugin.initialize(ctx)
-    ctx.add_menu_action.assert_called_once()
-    path = ctx.add_menu_action.call_args[0][0]
-    assert path == "Settings/PMEFF Setting"
+    paths = [c.args[0] for c in ctx.add_menu_action.call_args_list]
+    assert "Settings/PMEFF Setting" in paths
 
 
 def test_corrupt_settings_file_falls_back_to_defaults(settings_file):
