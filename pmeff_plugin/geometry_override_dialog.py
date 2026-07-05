@@ -203,6 +203,8 @@ if _HAVE_QT:
             self._on_apply_and_optimize = on_apply_and_optimize
             # Working copy: atom_index -> canonical geometry key.
             self._overrides: Dict[int, str] = dict(overrides or {})
+            # Atom indices changed since the last Apply — tinted until committed.
+            self._dirty: set = set()
             self._row_atom: List[int] = []
             self._click_filter = None
             self._last_natoms = None
@@ -225,8 +227,8 @@ if _HAVE_QT:
                 "atoms — mainly metal centers, whose geometry connectivity "
                 "alone cannot determine. <b>Auto</b> keeps the default "
                 "behavior. Options that don't fit an atom's neighbor count are "
-                "disabled; overridden atoms are tinted blue. Click an atom in "
-                "the 3D view to locate its row."
+                "disabled; atoms with unsaved changes are tinted blue until you "
+                "Apply. Click an atom in the 3D view to locate its row."
             )
             intro.setWordWrap(True)
             layout.addWidget(intro)
@@ -334,7 +336,8 @@ if _HAVE_QT:
             combo.currentIndexChanged.connect(self._on_geometry_changed)
             self.table.setCellWidget(row, self._COL_GEOM, combo)
 
-            self._set_row_highlight(row, current is not None)
+            # Blue marks a pending (unsaved) change; committed rows are white.
+            self._set_row_highlight(row, idx in self._dirty)
 
         def _set_row_highlight(self, row, active):
             brush = _HIGHLIGHT if active else _NO_BRUSH
@@ -353,25 +356,36 @@ if _HAVE_QT:
                 self._overrides.pop(idx, None)
             else:
                 self._overrides[idx] = str(key)
+            # Any edit is an unsaved change until Apply — mark the row blue.
+            self._dirty.add(idx)
             if idx in self._row_atom:
-                self._set_row_highlight(self._row_atom.index(idx), key is not None)
+                self._set_row_highlight(self._row_atom.index(idx), True)
 
         # -- actions -----------------------------------------------------
         def _commit(self):
             if callable(self._on_apply):
                 self._on_apply(dict(self._overrides))
 
+        def _mark_committed(self):
+            """Clear the unsaved-change tint: applied rows go back to white."""
+            self._dirty = set()
+            for row in range(self.table.rowCount()):
+                self._set_row_highlight(row, False)
+
         def apply(self):
             self._commit()
+            self._mark_committed()
 
         def apply_and_optimize(self):
             if callable(self._on_apply_and_optimize):
                 self._on_apply_and_optimize(dict(self._overrides))
             else:  # pragma: no cover - defensive
                 self._commit()
+            self._mark_committed()
 
         def clear_all(self):
             self._overrides = {}
+            self._dirty = set()
             self.load_atoms()
             self._commit()
 
@@ -496,8 +510,10 @@ if _HAVE_QT:
 
         def closeEvent(self, event):  # noqa: N802 (Qt override)
             # Commit the working copy so overrides survive closing/reopening the
-            # window (and are saved with the project) even without pressing Apply.
+            # window (and are saved with the project) even without pressing Apply;
+            # closing counts as applying, so drop the unsaved-change tint too.
             self._commit()
+            self._dirty = set()
             self._disable_plotter_picking()
             plotter = getattr(self.context, "plotter", None)
             if plotter is not None:
