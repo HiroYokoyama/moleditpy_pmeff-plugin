@@ -129,6 +129,8 @@ can force the geometry of individual atoms:
 | **Trigonal Planar** | 120°, kept planar |
 | **Square Planar** | cis 90° / trans 180° |
 | **Tetrahedral** | 109.47° |
+| **Trigonal Bipyramidal** | axial–axial 180°, axial–equatorial 90°, equatorial–equatorial 120° |
+| **Square Pyramidal** | cis 90° / trans 180° (2 trans pairs) |
 | **Octahedral** | cis 90° / trans 180° |
 
 The table lists the current molecule's atoms (an **Atom ID** column identifies

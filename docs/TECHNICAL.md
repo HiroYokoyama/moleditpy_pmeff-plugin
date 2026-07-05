@@ -163,6 +163,8 @@ default and the auto-metal detection. This is threaded through
 | `trigonal_planar` | 120°, plus an out-of-plane planarity term |
 | `tetrahedral` | 109.47° (= arccos(−⅓)) |
 | `square_planar` | coordinate-based cis 90° / 2 trans 180° |
+| `trigonal_bipyramidal` | axial–axial 180°, axial–equatorial 90°, equatorial–equatorial 120° (axial pair from the starting geometry) |
+| `square_pyramidal` | coordinate-based cis 90° / 2 trans 180° (5-coordinate) |
 | `octahedral` | coordinate-based cis 90° / 3 trans 180° |
 
 Names are normalized case/space/hyphen-insensitively (`_normalize_geometry`);

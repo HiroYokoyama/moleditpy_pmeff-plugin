@@ -96,6 +96,80 @@ def test_octahedral_override_cis_trans():
 
 
 # --------------------------------------------------------------------------
+# Five-coordinate geometries
+# --------------------------------------------------------------------------
+def test_trigonal_bipyramidal_override():
+    from collections import Counter
+
+    # 3 equatorial (xy, 120° apart) + 2 axial (±z).
+    nums = [26] + [9] * 5
+    bonds = [(0, i) for i in range(1, 6)]
+    coords = np.array(
+        [
+            [0, 0, 0],
+            [2, 0, 0],
+            [-1, 1.73, 0],
+            [-1, -1.73, 0],
+            [0, 0, 2],
+            [0, 0, -2],
+        ],
+        dtype=float,
+    )
+    topo = build_topology(
+        nums, bonds, coords=coords, geometry_overrides={0: "trigonal_bipyramidal"}
+    )
+    # 1 axial-axial (180), 6 axial-equatorial (90), 3 equatorial-equatorial (120).
+    hist = Counter(round(math.degrees(a[3])) for a in topo.angles)
+    assert hist == {90: 6, 120: 3, 180: 1}
+
+
+def test_square_pyramidal_override():
+    from collections import Counter
+
+    # 4 basal (square) + 1 apical.
+    nums = [26] + [9] * 5
+    bonds = [(0, i) for i in range(1, 6)]
+    coords = np.array(
+        [[0, 0, 0], [2, 0, 0], [-2, 0, 0], [0, 2, 0], [0, -2, 0], [0, 0, 2]],
+        dtype=float,
+    )
+    topo = build_topology(
+        nums, bonds, coords=coords, geometry_overrides={0: "square_pyramidal"}
+    )
+    # Same 2-trans cis/trans machinery as square planar: 8 cis (90), 2 trans (180).
+    hist = Counter(round(math.degrees(a[3])) for a in topo.angles)
+    assert hist == {90: 8, 180: 2}
+
+
+def test_trigonal_bipyramidal_optimizes_cleanly():
+    # A perturbed TBP start relaxes to a finite, converged geometry.
+    nums = [26] + [9] * 5
+    bonds = [(0, i) for i in range(1, 6)]
+    coords = np.array(
+        [
+            [0, 0, 0],
+            [2, 0, 0],
+            [-1, 1.73, 0],
+            [-1, -1.73, 0],
+            [0, 0, 2],
+            [0, 0, -2],
+        ],
+        dtype=float,
+    )
+    topo = build_topology(
+        nums, bonds, coords=coords, geometry_overrides={0: "trigonal_bipyramidal"}
+    )
+    rng = np.random.default_rng(1)
+    start = coords + rng.normal(0, 0.1, coords.shape)
+    start[0] = coords[0]
+    from pmeff_plugin.forcefield import optimize
+
+    new_coords, result = optimize(start, topo, max_iter=400)
+    assert result.converged
+    assert np.all(np.isfinite(new_coords))
+
+
+# --------------------------------------------------------------------------
 # Name normalization & robustness
 # --------------------------------------------------------------------------
 @pytest.mark.parametrize(
@@ -105,6 +179,8 @@ def test_octahedral_override_cis_trans():
         ("square-planar", "square_planar"),
         ("  TETRAHEDRAL ", "tetrahedral"),
         ("Trigonal-Planar", "trigonal_planar"),
+        ("Trigonal Bipyramidal", "trigonal_bipyramidal"),
+        ("Square Pyramidal", "square_pyramidal"),
         ("banana", None),
         (None, None),
         (123, None),
@@ -251,6 +327,10 @@ def test_is_metal(z, metal):
         ("square_planar", 4, True),
         ("tetrahedral", 4, True),
         ("tetrahedral", 6, False),
+        ("trigonal_bipyramidal", 5, True),
+        ("trigonal_bipyramidal", 4, False),
+        ("square_pyramidal", 5, True),
+        ("square_pyramidal", 6, False),
         ("octahedral", 6, True),
         ("octahedral", 4, False),
     ],

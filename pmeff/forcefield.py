@@ -303,19 +303,30 @@ _OCTAHEDRAL_METALS = (
 #
 # The fixed-angle geometries apply a single ideal L-M-L angle to every ligand
 # pair; the cis/trans geometries reuse the coordinate-based greedy trans-pair
-# assignment already used by the auto metal targets.
+# assignment already used by the auto metal targets; trigonal-bipyramidal is a
+# three-value special case (axial-axial 180°, axial-equatorial 90°,
+# equatorial-equatorial 120°) handled from the starting geometry.
 _GEOMETRY_FIXED_ANGLE_DEG: Dict[str, float] = {
     "linear": 180.0,
     "trigonal_planar": 120.0,
     "tetrahedral": 109.47122063449069,  # arccos(-1/3)
 }
-# Cis/trans geometries → number of trans (180°) ligand pairs to assign.
+# Cis/trans geometries → number of trans (180°) ligand pairs to assign. Square
+# pyramidal (5-coordinate) reuses the same 2-trans greedy assignment as square
+# planar; the fifth (apical) ligand simply falls out as cis (90°) to the rest.
 _GEOMETRY_CIS_TRANS: Dict[str, int] = {
     "square_planar": 2,
     "octahedral": 3,
+    "square_pyramidal": 2,
 }
-_VALID_GEOMETRIES: frozenset = frozenset(_GEOMETRY_FIXED_ANGLE_DEG) | frozenset(
-    _GEOMETRY_CIS_TRANS
+# Trigonal-bipyramidal: its own axial/equatorial angle assignment (see the
+# angle builder). Kept separate because it needs three distinct target angles.
+_GEOMETRY_TBP = "trigonal_bipyramidal"
+_TBP_EQ_ANGLE = math.radians(120.0)  # equatorial-equatorial target
+_VALID_GEOMETRIES: frozenset = (
+    frozenset(_GEOMETRY_FIXED_ANGLE_DEG)
+    | frozenset(_GEOMETRY_CIS_TRANS)
+    | {_GEOMETRY_TBP}
 )
 
 
@@ -329,6 +340,42 @@ def _normalize_geometry(name: object) -> Optional[str]:
         return None
     key = str(name).strip().lower().replace(" ", "_").replace("-", "_")
     return key if key in _VALID_GEOMETRIES else None
+
+
+def _greedy_trans_pairs(
+    nbrs: Sequence[int], coords: np.ndarray, center: int, n_trans: int
+) -> Optional[frozenset]:
+    """Pick *n_trans* mutually-exclusive ligand pairs with the widest L-M-L angles.
+
+    Reads the current L-M-L angles at *center* from *coords* and greedily labels
+    the ``n_trans`` largest (atom-exclusive) as trans, so the cis/trans (or
+    axial) assignment emerges from the starting geometry rather than a symmetric
+    sentinel that would stall the optimizer. Returns the selected pairs as a
+    frozenset of ``(a, b)`` tuples (each ordered as it appears in *nbrs*), or
+    None if fewer than *n_trans* disjoint pairs exist.
+    """
+    ranked: List[Tuple[float, int, int]] = []
+    for ai, la in enumerate(nbrs):
+        for lb in nbrs[ai + 1 :]:
+            r1 = coords[la] - coords[center]
+            r2 = coords[lb] - coords[center]
+            n1 = float(np.linalg.norm(r1))
+            n2 = float(np.linalg.norm(r2))
+            if n1 > 1e-9 and n2 > 1e-9:
+                ct = float(np.clip(np.dot(r1, r2) / (n1 * n2), -1.0, 1.0))
+            else:
+                ct = 0.0
+            ranked.append((math.acos(ct), la, lb))
+    ranked.sort(reverse=True)
+    selected: List[Tuple[int, int]] = []
+    used: set = set()
+    for _, la, lb in ranked:
+        if la not in used and lb not in used:
+            selected.append((la, lb))
+            used.update((la, lb))
+            if len(selected) == n_trans:
+                break
+    return frozenset(selected) if len(selected) == n_trans else None
 
 
 # Morse bond potential: V = D(1 − e^{−α(r−r₀)})²
@@ -1028,9 +1075,11 @@ def build_topology(
         geometry_overrides: Optional ``{atom_index: name}`` mapping forcing the
             coordination geometry of individual atoms (chiefly metal centers).
             Recognized names are ``"linear"`` (180°), ``"trigonal_planar"``
-            (120°, kept planar), ``"tetrahedral"`` (109.47°), ``"square_planar"``
-            and ``"octahedral"`` (coordinate-based cis 90° / trans 180° targets,
-            like the auto metal geometries). Names are case/space/hyphen
+            (120°, kept planar), ``"tetrahedral"`` (109.47°), ``"square_planar"``,
+            ``"square_pyramidal"`` and ``"octahedral"`` (coordinate-based cis 90°
+            / trans 180° targets, like the auto metal geometries), and
+            ``"trigonal_bipyramidal"`` (axial-axial 180°, axial-equatorial 90°,
+            equatorial-equatorial 120°). Names are case/space/hyphen
             insensitive; unknown names and out-of-range indices are ignored. An
             atom with no entry keeps its default (hybridization- or
             auto-metal-derived) angles, so this argument never changes behavior
@@ -1117,7 +1166,13 @@ def build_topology(
             and len(nbrs) == 6
             and atomic_numbers[j] in _OCTAHEDRAL_METALS
         )
-        is_special_metal = is_sq_planar or is_octahedral
+        # A cis/trans override (square-planar/octahedral/square-pyramidal) uses
+        # the greedy trans-pair assignment; square-pyramidal is just 2 trans
+        # pairs on a 5-coordinate center, so it is special even though it is
+        # neither is_sq_planar nor is_octahedral.
+        is_special_metal = (
+            is_sq_planar or is_octahedral or (override in _GEOMETRY_CIS_TRANS)
+        )
         # Square-planar: 2 trans pairs (π); octahedral: 3 trans pairs (π). An
         # override fixes the count regardless of coordination number.
         n_trans = _GEOMETRY_CIS_TRANS.get(override or "", 0) or (
@@ -1125,41 +1180,30 @@ def build_topology(
         )
         _trans_pairs: Optional[frozenset] = None
         if is_special_metal and _coords is not None and n_trans > 0:
-            # Geometry-based trans/cis assignment.
-            #
-            # Read the initial L-M-L angles from the coordinates. The n_trans
-            # largest angles (atom-exclusive, greedy) are labelled trans (π);
-            # all remaining pairs are cis (π/2). This avoids the symmetric-
-            # gradient trap in near-tetrahedral/octahedral starting geometries,
-            # where a nearest-target sentinel would assign the same ideal angle
-            # to all pairs and the force network stalls.
-            _sq: List[Tuple[float, int, int]] = []
-            for _ai, _la in enumerate(nbrs):
-                for _lb in nbrs[_ai + 1 :]:
-                    _r1 = _coords[_la] - _coords[j]
-                    _r2 = _coords[_lb] - _coords[j]
-                    _n1 = float(np.linalg.norm(_r1))
-                    _n2 = float(np.linalg.norm(_r2))
-                    if _n1 > 1e-9 and _n2 > 1e-9:
-                        _ct = float(np.clip(np.dot(_r1, _r2) / (_n1 * _n2), -1.0, 1.0))
-                    else:
-                        _ct = 0.0
-                    _sq.append((math.acos(_ct), _la, _lb))
-            _sq.sort(reverse=True)
-            _selected: List[Tuple[int, int]] = []
-            _used: set = set()
-            for _, _la, _lb in _sq:
-                if _la not in _used and _lb not in _used:
-                    _selected.append((_la, _lb))
-                    _used.update((_la, _lb))
-                    if len(_selected) == n_trans:
-                        break
-            if len(_selected) == n_trans:
-                _trans_pairs = frozenset(_selected)
+            _trans_pairs = _greedy_trans_pairs(nbrs, _coords, j, n_trans)
+        # Trigonal bipyramidal: pick the single axial (widest-angle) pair from
+        # the starting geometry; axial-axial → 180°, axial-equatorial → 90°,
+        # equatorial-equatorial → 120°.
+        tbp_targets: Optional[Dict[Tuple[int, int], float]] = None
+        if override == _GEOMETRY_TBP and _coords is not None:
+            axial = _greedy_trans_pairs(nbrs, _coords, j, 1)
+            if axial is not None:
+                ax_atoms: set = set()
+                for _pa, _pb in axial:
+                    ax_atoms.update((_pa, _pb))
+                tbp_targets = {}
+                for ai, la in enumerate(nbrs):
+                    for lb in nbrs[ai + 1 :]:
+                        if (la, lb) in axial:
+                            tbp_targets[(la, lb)] = math.pi
+                        elif la in ax_atoms or lb in ax_atoms:
+                            tbp_targets[(la, lb)] = math.pi / 2
+                        else:
+                            tbp_targets[(la, lb)] = _TBP_EQ_ANGLE
         lp_blend: Optional[Tuple[float, float]] = None
         if fixed_target is not None:
             theta0 = fixed_target  # every ligand pair shares this ideal angle
-        elif not is_special_metal:
+        elif not is_special_metal and tbp_targets is None:
             theta0 = math.radians(
                 _ideal_angle_deg(hyb(j), len(nbrs), atomic_numbers[j])
             )
@@ -1176,6 +1220,8 @@ def build_topology(
             for atom_b in nbrs[a + 1 :]:
                 if fixed_target is not None:
                     target = fixed_target
+                elif tbp_targets is not None:
+                    target = tbp_targets[(atom_a, atom_b)]
                 elif is_special_metal:
                     if _trans_pairs is not None:
                         target = (

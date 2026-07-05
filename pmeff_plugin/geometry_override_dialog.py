@@ -33,12 +33,15 @@ logger = logging.getLogger(__name__)
 # Display label -> canonical geometry key understood by the force field
 # (forcefield._VALID_GEOMETRIES). "Auto" (None) leaves the atom on the default
 # hybridization- / auto-metal-derived geometry.
+# Ordered by coordination number so the drop-down reads low → high.
 GEOMETRY_CHOICES: List[tuple] = [
     ("Auto (detect)", None),
     ("Linear", "linear"),
     ("Trigonal Planar", "trigonal_planar"),
     ("Square Planar", "square_planar"),
     ("Tetrahedral", "tetrahedral"),
+    ("Trigonal Bipyramidal", "trigonal_bipyramidal"),
+    ("Square Pyramidal", "square_pyramidal"),
     ("Octahedral", "octahedral"),
 ]
 
@@ -49,6 +52,8 @@ _GEOM_COORDINATION: Dict[str, int] = {
     "trigonal_planar": 3,
     "square_planar": 4,
     "tetrahedral": 4,
+    "trigonal_bipyramidal": 5,
+    "square_pyramidal": 5,
     "octahedral": 6,
 }
 
