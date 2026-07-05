@@ -145,8 +145,9 @@ auto-detection) are unchanged. They are also **independent of the electronic-
 effects setting** — a forced geometry applies whether or not electronic effects
 are on. **Apply** stores the overrides without moving atoms (then run *Optimize
 3D (PMEFF)* when you like); **Apply and Optimize** stores them and relaxes the
-molecule immediately. Overrides persist across closing the window and are saved
-with the project, restored when it is reopened.
+molecule immediately. Only *applied* overrides are kept — they are saved with
+the project and restored when the window (or project) is reopened; an unsaved
+(blue) change is discarded if you close the window without applying it.
 
 Geometry optimization uses **FIRE 2.0** (Fast Inertial Relaxation Engine) for
 the far-from-minimum regime and hands over to an **L-BFGS finisher** in the

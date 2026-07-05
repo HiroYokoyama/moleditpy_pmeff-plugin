@@ -205,6 +205,9 @@ if _HAVE_QT:
             self._on_apply_and_optimize = on_apply_and_optimize
             # Working copy: atom_index -> canonical geometry key.
             self._overrides: Dict[int, str] = dict(overrides or {})
+            # The applied (committed) overrides — the state pending edits revert
+            # to on close, and the green-tinted set.
+            self._committed: Dict[int, str] = dict(overrides or {})
             # Atom indices changed since the last Apply — tinted until committed.
             self._dirty: set = set()
             self._row_atom: List[int] = []
@@ -280,7 +283,11 @@ if _HAVE_QT:
 
         # -- data --------------------------------------------------------
         def set_overrides(self, overrides):
+            # Re-seed the working copy from the applied set; any pending
+            # (unsaved) edits are dropped.
             self._overrides = dict(overrides or {})
+            self._committed = dict(overrides or {})
+            self._dirty = set()
 
         def _mol(self):
             return getattr(self.context, "current_molecule", None) or getattr(
@@ -377,7 +384,8 @@ if _HAVE_QT:
                 self._on_apply(dict(self._overrides))
 
         def _mark_committed(self):
-            """Drop the unsaved (blue) tint; applied overrides turn green."""
+            """Snapshot the applied set; drop blue tint (applied rows go green)."""
+            self._committed = dict(self._overrides)
             self._dirty = set()
             for row in range(self.table.rowCount()):
                 self._paint_row(row)
@@ -519,10 +527,11 @@ if _HAVE_QT:
             plotter.render()
 
         def closeEvent(self, event):  # noqa: N802 (Qt override)
-            # Commit the working copy so overrides survive closing/reopening the
-            # window (and are saved with the project) even without pressing Apply;
-            # closing counts as applying, so drop the unsaved-change tint too.
-            self._commit()
+            # Closing does NOT save: unsaved (blue) changes are discarded. Only
+            # applied (green) overrides — already committed via Apply — persist
+            # and are restored when the window is reopened. Revert the working
+            # copy to the applied snapshot so a reused window reopens clean.
+            self._overrides = dict(self._committed)
             self._dirty = set()
             self._disable_plotter_picking()
             plotter = getattr(self.context, "plotter", None)
