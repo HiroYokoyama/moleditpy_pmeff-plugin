@@ -192,6 +192,17 @@ geometry cleanup; tune them for your system.
 | `use_dispersion` | Becke-Johnson damped dispersion pairs alongside the LJ list. | π-stacking, large flexible molecules, van der Waals complexes. |
 | `use_polar_contraction` | Shortens polar bond rest lengths by a capped quadratic in the electronegativity difference (Si–O 1.79→1.63 Å, P=O, B–O, metal-oxides, C–F). Organic C–C/C–O/C–N/C–H unchanged. | Default on; leave it unless you specifically want plain covalent-radius sums. |
 
+Both `optimize_mol` and `optimize_coords` also accept `geometry_overrides` — a
+`{atom_index: name}` mapping forcing the coordination geometry of individual
+atoms, where *name* is one of `"linear"`, `"trigonal_planar"`,
+`"square_planar"`, `"tetrahedral"` or `"octahedral"`. It is independent of the
+switches above (it works with `electronic_effects` off) and applies to any atom,
+not only metals; atoms not listed keep their default geometry.
+
+```python
+mol, result = pmeff.optimize_mol(mol, geometry_overrides={0: "square_planar"})
+```
+
 ---
 
 ## 5. Reading the result (`OptimizeResult`)

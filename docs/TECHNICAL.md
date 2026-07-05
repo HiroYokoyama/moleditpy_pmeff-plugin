@@ -144,7 +144,36 @@ Four special cases:
   4-coordinate Ni/Pd/Pt/Rh/Ir/Au carry the sentinel θ₀ = −1; at evaluation
   time each such angle pulls toward whichever ideal vertex angle (90° or
   180°) is nearer (threshold 135°), so the cis/trans assignment emerges from
-  the starting geometry.
+  the starting geometry. Six-coordinate d-block metals get the analogous
+  octahedral targets (3 trans pairs at 180°, the rest cis at 90°), with the
+  trans pairs chosen greedily from the largest L–M–L angles in the starting
+  geometry.
+
+#### Per-atom geometry overrides
+
+`build_topology(..., geometry_overrides={atom_index: name})` forces the
+coordination geometry of individual atoms, overriding both the hybridization
+default and the auto-metal detection. This is threaded through
+`topology_from_rdkit`, `optimize_rdkit_mol`, `compute_energy[_components]`,
+`check_minimum`, and the standalone `pmeff.optimize_mol` / `optimize_coords`.
+
+| name | angle assignment |
+|---|---|
+| `linear` | every L–M–L angle → 180° |
+| `trigonal_planar` | 120°, plus an out-of-plane planarity term |
+| `tetrahedral` | 109.47° (= arccos(−⅓)) |
+| `square_planar` | coordinate-based cis 90° / 2 trans 180° |
+| `octahedral` | coordinate-based cis 90° / 3 trans 180° |
+
+Names are normalized case/space/hyphen-insensitively (`_normalize_geometry`);
+unknown names and out-of-range indices are silently ignored. The cis/trans
+geometries reuse the same greedy trans-pair selection as the auto metal
+targets; the fixed-angle geometries apply one target to every ligand pair
+(bypassing the lone-pair and ring-angle special cases). A `trigonal_planar`
+override adds an out-of-plane term; any other override *removes* one an sp²
+centre would otherwise get. Overrides are fully opt-in and **independent of the
+electronic-effects flag** — an atom with no entry is untouched, so the shipped
+defaults are unchanged.
 
 ### 3. Torsion
 

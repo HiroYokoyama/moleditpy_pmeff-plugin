@@ -147,6 +147,8 @@ def initialize(context):
         lambda: _open_settings_dialog(context),
         text="PMEFF Settings…",
     )
+    # One menu entry under 3D Edit; also reachable from a button in PMEFF
+    # Settings. Both open the same modeless override table.
     context.add_menu_action(
         "3D Edit/PMEFF Metal Geometry Override",
         lambda: _open_geometry_override_window(context),

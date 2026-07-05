@@ -31,6 +31,7 @@ Once installed, PMEFF registers:
 | **PMEFF** | Right-click the *Optimize 3D* button | Relaxes the current 3D geometry with a dependency-free FIRE 2.0 + L-BFGS optimizer. |
 | **PMEFF Single-Point Energy** | *Analysis* menu | Reports the force-field energy (with per-term decomposition) without modifying the geometry. |
 | **PMEFF Minimum Check (Vibrational)** | *Analysis* menu | Diagonalizes the Hessian at the current geometry and reports whether it is a true minimum or a saddle point. |
+| **Metal Geometry Override…** | *3D Edit* menu (also a button in *PMEFF Settings*) | Opens a modeless table to force the coordination geometry of individual atoms (see below). |
 | **PMEFF Settings…** | *Settings → PMEFF Setting* menu | Opens a dialog to toggle individual physics options (persisted to `settings.json`). |
 
 > **Scope:** PMEFF is a pre-DFT *geometry-cleanup* force field. Its goal is
@@ -113,6 +114,33 @@ Lone pairs are not explicit particles, but their steric effect enters through
 the hybridization-derived angle targets: sp³ N stays pyramidal, sp³ O stays
 bent, and a conjugated (sp²) amide nitrogen stays planar.
 
+### Per-atom geometry override
+
+Connectivity alone cannot always determine a coordination geometry — a
+4-coordinate metal may be square-planar *or* tetrahedral, and a bare metal
+centre may have no reliable hybridization at all. **3D Edit → Metal Geometry
+Override** (also a button in *PMEFF Settings*) opens a modeless table where you
+can force the geometry of individual atoms:
+
+| Override | Ideal L–M–L angles |
+|---|---|
+| **Auto** *(default)* | Hybridization / auto-metal detection (unchanged) |
+| **Linear** | 180° |
+| **Trigonal Planar** | 120°, kept planar |
+| **Square Planar** | cis 90° / trans 180° |
+| **Tetrahedral** | 109.47° |
+| **Octahedral** | cis 90° / trans 180° |
+
+The table lists the current molecule's atoms with a *Show metals only* filter
+(on by default — uncheck it to override carbon or any other element). Click an
+atom in the 3D view to jump to its row; selected rows are highlighted in 3D.
+Overrides are **entirely opt-in**: an atom left on *Auto* behaves exactly as
+before, so the shipped defaults (including the d8 square-planar / octahedral
+auto-detection) are unchanged. They are also **independent of the electronic-
+effects setting** — a forced geometry applies whether or not electronic effects
+are on. Press **Apply**, then run *Optimize 3D (PMEFF)* to relax under the new
+targets. Overrides are saved with the project and restored when it is reopened.
+
 Geometry optimization uses **FIRE 2.0** (Fast Inertial Relaxation Engine) for
 the far-from-minimum regime and hands over to an **L-BFGS finisher** in the
 quadratic basin, with a per-atom displacement clamp for stability and fully
@@ -175,7 +203,15 @@ print(Chem.MolToXYZBlock(mol))                    # -> optimized coordinates
 
 `optimize_mol` takes the same physics switches as the plugin
 (`electronic_effects`, `use_morse`, `use_hbond`, `use_dispersion`,
-`use_polar_contraction`) plus `max_iter` and `f_tol`.
+`use_polar_contraction`) plus `max_iter` and `f_tol`. It also accepts
+`geometry_overrides` — a `{atom_index: name}` mapping (`"linear"`,
+`"trigonal_planar"`, `"square_planar"`, `"tetrahedral"`, `"octahedral"`) that
+forces the coordination geometry of individual atoms:
+
+```python
+# Force atom 1 to square-planar regardless of its detected hybridization.
+mol, result = pmeff.optimize_mol(mol, geometry_overrides={1: "square_planar"})
+```
 
 ### Without RDKit — plain arrays in, coordinates out
 
@@ -198,7 +234,8 @@ print(coords)                                      # optimized (N, 3) array
 ```
 
 Optional charges (`pmeff.qeq_charges(...)`), per-bond orders and hybridizations
-sharpen the result. The lower-level engine — `build_topology`,
+sharpen the result; `optimize_coords` also accepts the same `geometry_overrides`
+mapping as `optimize_mol`. The lower-level engine — `build_topology`,
 `energy_and_gradient`, `energy_components`, `optimize`, `vibrational_analysis` —
 is exported too for custom workflows.
 
