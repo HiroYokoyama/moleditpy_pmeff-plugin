@@ -236,11 +236,23 @@ def _open_geometry_override_window(context) -> None:
     )
 
 
+def _host_window(context):
+    """Return the host main window, tolerating either PluginContext API.
+
+    The stable ``PluginContext`` exposes ``get_main_window()`` (there is no
+    ``main_window`` attribute); ``getattr`` fallback keeps a minimal mock happy.
+    """
+    getter = getattr(context, "get_main_window", None)
+    if callable(getter):
+        return getter()
+    return getattr(context, "main_window", None)
+
+
 def _open_settings_dialog(context) -> None:
     """Open the PMEFF settings dialog and save any changes."""
     from .settings_dialog import open_settings_dialog
 
-    parent = getattr(context, "main_window", None)
+    parent = _host_window(context)
     current = load_settings()
     updated = open_settings_dialog(
         parent,
