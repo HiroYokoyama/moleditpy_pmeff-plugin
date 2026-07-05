@@ -150,7 +150,7 @@ def initialize(context):
     context.add_menu_action(
         "3D Edit/PMEFF Metal Geometry Override",
         lambda: _open_geometry_override_window(context),
-        text="Metal Geometry Override…",
+        text="PMEFF Metal Geometry Override…",
     )
     # Persist the last-used optimization options and the per-atom geometry
     # overrides with the project; restore the overrides on load; forget both on

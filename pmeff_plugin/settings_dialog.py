@@ -119,14 +119,25 @@ def open_settings_dialog(
     )
 
     # Per-atom coordination-geometry override table (chiefly for metals).
+    # The settings dialog is modal, so opening the modeless override window
+    # while it is up would leave that window unreachable behind the modal. We
+    # therefore close the dialog first and open the override window afterwards
+    # (see the exec() handling below).
+    pending = {"geometry": False}
     if on_open_geometry is not None:
         layout.addSpacing(4)
         geom_btn = QPushButton("Metal Geometry Override…")
         geom_btn.setToolTip(
             "Force the coordination geometry of individual atoms "
-            "(linear, trigonal/square planar, tetrahedral, octahedral)."
+            "(linear, trigonal/square planar, tetrahedral, octahedral). "
+            "Closes this dialog and opens the override table."
         )
-        geom_btn.clicked.connect(lambda: on_open_geometry())
+
+        def _go_geometry() -> None:
+            pending["geometry"] = True
+            dlg.accept()
+
+        geom_btn.clicked.connect(_go_geometry)
         geom_desc = QLabel(
             "Override the auto-detected geometry of individual metal centers. "
             "Applied on the next Optimize 3D (PMEFF) and saved with the project."
@@ -158,6 +169,9 @@ def open_settings_dialog(
     restore_btn.clicked.connect(_restore_defaults)
     layout.addWidget(buttons)
 
-    if dlg.exec() == QDialog.DialogCode.Accepted:
-        return {key: cb.isChecked() for key, cb in checks.items()}
-    return None
+    accepted = dlg.exec() == QDialog.DialogCode.Accepted
+    result = {key: cb.isChecked() for key, cb in checks.items()} if accepted else None
+    # Now that the modal dialog is closed, open the (modeless) override window.
+    if pending["geometry"] and on_open_geometry is not None:
+        on_open_geometry()
+    return result
