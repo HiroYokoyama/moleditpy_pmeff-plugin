@@ -165,6 +165,30 @@ def test_apply_geometry_overrides_updates_module_state():
     plugin._geometry_overrides = {}
 
 
+def test_apply_and_optimize_geometry_stores_and_optimizes():
+    plugin._geometry_overrides = {}
+    ctx = make_context()
+    ctx.current_molecule = _embed("CCO")
+    plugin._apply_and_optimize_geometry(ctx, {0: "tetrahedral"})
+    # Overrides are stored...
+    assert plugin._geometry_overrides == {0: "tetrahedral"}
+    # ...the molecule is optimized (status reported) and the 3D view refreshed.
+    ctx.show_status_message.assert_called()
+    ctx.refresh_3d_view.assert_called_once()
+    plugin._geometry_overrides = {}
+
+
+def test_apply_and_optimize_geometry_handles_no_molecule():
+    plugin._geometry_overrides = {}
+    ctx = make_context()
+    ctx.current_molecule = None
+    plugin._apply_and_optimize_geometry(ctx, {0: "linear"})
+    assert plugin._geometry_overrides == {0: "linear"}
+    msg = ctx.show_status_message.call_args[0][0]
+    assert "no molecule" in msg.lower()
+    plugin._geometry_overrides = {}
+
+
 def test_save_handler_snapshots_last_optimization_settings():
     plugin._last_opt_settings = None
     ctx = make_context()

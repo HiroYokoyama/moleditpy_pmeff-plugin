@@ -239,3 +239,23 @@ def test_is_metal(z, metal):
     from pmeff_plugin.geometry_override_dialog import is_metal
 
     assert is_metal(z) is metal
+
+
+@pytest.mark.parametrize(
+    "key,degree,allowed",
+    [
+        (None, 3, True),  # Auto always allowed
+        ("linear", 2, True),
+        ("linear", 3, False),  # linear disabled on a 3-coordinate center
+        ("trigonal_planar", 3, True),
+        ("square_planar", 4, True),
+        ("tetrahedral", 4, True),
+        ("tetrahedral", 6, False),
+        ("octahedral", 6, True),
+        ("octahedral", 4, False),
+    ],
+)
+def test_geometry_allowed(key, degree, allowed):
+    from pmeff_plugin.geometry_override_dialog import geometry_allowed
+
+    assert geometry_allowed(key, degree) is allowed

@@ -198,13 +198,8 @@ def _reset_project_state() -> None:
     _geometry_overrides = {}
 
 
-def _apply_geometry_overrides(context, overrides: dict) -> None:
-    """Store the geometry-override table applied from the override window.
-
-    Overrides feed every subsequent PMEFF optimize / energy / minimum-check for
-    this document (and are persisted with the project). Nothing is re-optimized
-    here — the user runs Optimize 3D (PMEFF) to apply them to the geometry.
-    """
+def _store_geometry_overrides(overrides: dict) -> int:
+    """Replace the document's geometry overrides; return how many are set."""
     global _geometry_overrides
     cleaned: dict = {}
     for idx, name in (overrides or {}).items():
@@ -213,7 +208,12 @@ def _apply_geometry_overrides(context, overrides: dict) -> None:
         except (TypeError, ValueError):
             continue
     _geometry_overrides = cleaned
-    n = len(cleaned)
+    return len(cleaned)
+
+
+def _apply_geometry_overrides(context, overrides: dict) -> None:
+    """Store the geometry-override table (Apply — does not re-optimize)."""
+    n = _store_geometry_overrides(overrides)
     if n:
         _status(
             context,
@@ -225,6 +225,20 @@ def _apply_geometry_overrides(context, overrides: dict) -> None:
         _status(context, "PMEFF: geometry overrides cleared.", 4000)
 
 
+def _apply_and_optimize_geometry(context, overrides: dict) -> None:
+    """Store the overrides and immediately re-optimize the current molecule."""
+    _store_geometry_overrides(overrides)
+    mol = getattr(context, "current_molecule", None)
+    if mol is None:
+        _status(context, "PMEFF: no molecule loaded to optimize.", 3000)
+        return
+    if _optimize(mol, context):
+        # Redraw the 3D view so the relaxed geometry is visible immediately.
+        refresh = getattr(context, "refresh_3d_view", None)
+        if callable(refresh):
+            refresh()
+
+
 def _open_geometry_override_window(context) -> None:
     """Open (or re-show) the modeless Metal Geometry Override table."""
     from .geometry_override_dialog import open_override_window
@@ -233,6 +247,7 @@ def _open_geometry_override_window(context) -> None:
         context,
         dict(_geometry_overrides),
         lambda ov: _apply_geometry_overrides(context, ov),
+        lambda ov: _apply_and_optimize_geometry(context, ov),
     )
 
 

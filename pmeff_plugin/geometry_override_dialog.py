@@ -12,6 +12,12 @@ The window mirrors the official *XYZ Editor* plugin's interaction model:
 * interactive selection — clicking an atom in the 3D view selects its table
   row, and selecting rows highlights the atoms in 3D with a yellow halo.
 
+Rows with an active override are tinted light blue. Geometry options whose
+coordination number does not match the atom's neighbor count are disabled (e.g.
+*Linear* is unavailable on a 3-coordinate center). Overrides are committed to
+the plugin on Apply, on Apply & Optimize, and when the window is closed, so they
+survive closing/reopening the window and are saved with the project.
+
 All PyQt6 / PyVista / VTK imports are guarded so this module imports cleanly in
 headless (test) environments; :func:`open_override_window` returns ``None`` and
 the pure helpers below (:data:`GEOMETRY_CHOICES`, :func:`is_metal`) stay usable.
@@ -35,6 +41,16 @@ GEOMETRY_CHOICES: List[tuple] = [
     ("Tetrahedral", "tetrahedral"),
     ("Octahedral", "octahedral"),
 ]
+
+# Coordination number each geometry is meaningful for. Options whose value does
+# not match an atom's neighbor count are disabled for that atom.
+_GEOM_COORDINATION: Dict[str, int] = {
+    "linear": 2,
+    "trigonal_planar": 3,
+    "square_planar": 4,
+    "tetrahedral": 4,
+    "octahedral": 6,
+}
 
 # Non-metallic elements (incl. noble gases and the metalloids B, Si, Ge, As,
 # Sb, Te, At). Everything else with Z >= 3 is treated as a metal for the filter.
@@ -77,10 +93,22 @@ def is_metal(atomic_number: int) -> bool:
     return z >= 3 and z not in _NONMETAL_Z
 
 
+def geometry_allowed(key: Optional[str], degree: int) -> bool:
+    """Whether geometry *key* is meaningful for an atom with *degree* neighbors.
+
+    ``Auto`` (None) is always allowed; every named geometry requires its own
+    coordination number (linear→2, trigonal_planar→3, square/tetra→4, octa→6).
+    """
+    if key is None:
+        return True
+    return _GEOM_COORDINATION.get(key) == degree
+
+
 def open_override_window(
     context: object,
     overrides: Optional[Dict[int, str]] = None,
     on_apply: Optional[Callable[[Dict[int, str]], None]] = None,
+    on_apply_and_optimize: Optional[Callable[[Dict[int, str]], None]] = None,
 ) -> Optional[object]:
     """Open (or re-show) the modeless geometry-override window.
 
@@ -96,7 +124,7 @@ def open_override_window(
     get_window = getattr(context, "get_window", None)
     win = get_window("pmeff_geometry_override") if callable(get_window) else None
     if win is None:
-        win = _OverrideWindow(context, overrides or {}, on_apply)
+        win = _OverrideWindow(context, overrides or {}, on_apply, on_apply_and_optimize)
         register = getattr(context, "register_window", None)
         if callable(register):
             register("pmeff_geometry_override", win)
@@ -123,6 +151,7 @@ try:  # pragma: no cover - exercised only with a real GUI stack
         QLabel,
         QHeaderView,
     )
+    from PyQt6.QtGui import QColor
     from PyQt6.QtCore import Qt, QObject, QEvent, QTimer
 
     _HAVE_QT = True
@@ -131,6 +160,9 @@ except ImportError:  # headless / test environment
 
 
 if _HAVE_QT:
+    # Light-blue tint marking a row whose atom carries an active override.
+    _HIGHLIGHT = QColor(205, 227, 251)
+    _NO_BRUSH = QColor(0, 0, 0, 0)
 
     class _ClickFilter(QObject):
         """Qt event filter: detect non-drag left clicks on the 3D plotter."""
@@ -161,20 +193,21 @@ if _HAVE_QT:
     class _OverrideWindow(QWidget):
         """Modeless table for forcing per-atom coordination geometries."""
 
-        _COL_IDX, _COL_ELEM, _COL_NBR, _COL_GEOM = range(4)
+        _COL_ID, _COL_ELEM, _COL_NBR, _COL_GEOM = range(4)
 
-        def __init__(self, context, overrides, on_apply):
+        def __init__(self, context, overrides, on_apply, on_apply_and_optimize=None):
             super().__init__(parent=_main_window(context))
             self.setWindowFlags(Qt.WindowType.Window)
             self.context = context
             self._on_apply = on_apply
+            self._on_apply_and_optimize = on_apply_and_optimize
             # Working copy: atom_index -> canonical geometry key.
             self._overrides: Dict[int, str] = dict(overrides or {})
             self._row_atom: List[int] = []
             self._click_filter = None
             self._last_natoms = None
             self.setWindowTitle("PMEFF — Metal Geometry Override")
-            self.resize(560, 460)
+            self.resize(560, 480)
             self._init_ui()
             self.load_atoms()
             self._enable_plotter_picking()
@@ -191,7 +224,9 @@ if _HAVE_QT:
                 "Force the coordination geometry PMEFF uses for individual "
                 "atoms — mainly metal centers, whose geometry connectivity "
                 "alone cannot determine. <b>Auto</b> keeps the default "
-                "behavior. Click an atom in the 3D view to locate its row."
+                "behavior. Options that don't fit an atom's neighbor count are "
+                "disabled; overridden atoms are tinted blue. Click an atom in "
+                "the 3D view to locate its row."
             )
             intro.setWordWrap(True)
             layout.addWidget(intro)
@@ -204,7 +239,7 @@ if _HAVE_QT:
             self.table = QTableWidget()
             self.table.setColumnCount(4)
             self.table.setHorizontalHeaderLabels(
-                ["Index", "Element", "Neighbors", "Geometry"]
+                ["Atom ID", "Element", "Neighbors", "Geometry"]
             )
             self.table.horizontalHeader().setSectionResizeMode(
                 QHeaderView.ResizeMode.Stretch
@@ -215,10 +250,19 @@ if _HAVE_QT:
             btns = QHBoxLayout()
             self.apply_btn = QPushButton("Apply")
             self.apply_btn.setToolTip(
-                "Store these overrides; run Optimize 3D (PMEFF) to apply them."
+                "Store these overrides (saved with the project). Does not "
+                "re-optimize — run Optimize 3D (PMEFF) to apply them."
             )
             self.apply_btn.clicked.connect(self.apply)
             btns.addWidget(self.apply_btn)
+
+            self.apply_opt_btn = QPushButton("Apply and Optimize")
+            self.apply_opt_btn.setToolTip(
+                "Store these overrides and immediately re-optimize the current "
+                "molecule with PMEFF."
+            )
+            self.apply_opt_btn.clicked.connect(self.apply_and_optimize)
+            btns.addWidget(self.apply_opt_btn)
 
             self.clear_btn = QPushButton("Clear All")
             self.clear_btn.clicked.connect(self.clear_all)
@@ -252,61 +296,84 @@ if _HAVE_QT:
                     z = atom.GetAtomicNum()
                     if metals_only and not is_metal(z):
                         continue
-                    self._add_row(atom.GetIdx(), atom.GetSymbol(), z, atom.GetDegree())
+                    self._add_row(atom.GetIdx(), atom.GetSymbol(), atom.GetDegree())
             self.table.blockSignals(False)
 
-        def _add_row(self, idx, symbol, z, degree):
+        def _add_row(self, idx, symbol, degree):
             row = self.table.rowCount()
             self.table.insertRow(row)
             self._row_atom.append(idx)
 
-            item_idx = QTableWidgetItem(str(idx))
-            item_idx.setFlags(item_idx.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self.table.setItem(row, self._COL_IDX, item_idx)
+            def _ro(text):
+                item = QTableWidgetItem(text)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                return item
 
-            item_el = QTableWidgetItem(symbol)
-            item_el.setFlags(item_el.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self.table.setItem(row, self._COL_ELEM, item_el)
+            self.table.setItem(row, self._COL_ID, _ro(str(idx)))
+            self.table.setItem(row, self._COL_ELEM, _ro(symbol))
+            self.table.setItem(row, self._COL_NBR, _ro(str(degree)))
 
-            item_nb = QTableWidgetItem(str(degree))
-            item_nb.setFlags(item_nb.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self.table.setItem(row, self._COL_NBR, item_nb)
-
+            current = self._overrides.get(idx)
             combo = QComboBox()
             for label, key in GEOMETRY_CHOICES:
                 combo.addItem(label, key)
-            current = self._overrides.get(idx)
+            # Disable options that don't fit this atom's coordination number
+            # (keep the currently selected one enabled so a loaded override is
+            # never silently dropped).
+            model = combo.model()
             sel = 0
             for i, (_label, key) in enumerate(GEOMETRY_CHOICES):
                 if key == current:
                     sel = i
-                    break
+                allowed = geometry_allowed(key, degree) or key == current
+                item = model.item(i)
+                if item is not None:
+                    item.setEnabled(allowed)
             combo.setCurrentIndex(sel)
             combo.setProperty("atom_idx", idx)
             combo.currentIndexChanged.connect(self._on_geometry_changed)
             self.table.setCellWidget(row, self._COL_GEOM, combo)
 
+            self._set_row_highlight(row, current is not None)
+
+        def _set_row_highlight(self, row, active):
+            brush = _HIGHLIGHT if active else _NO_BRUSH
+            for col in (self._COL_ID, self._COL_ELEM, self._COL_NBR):
+                item = self.table.item(row, col)
+                if item is not None:
+                    item.setBackground(brush)
+
         def _on_geometry_changed(self, _index):
             combo = self.sender()
             if combo is None:
                 return
-            idx = combo.property("atom_idx")
+            idx = int(combo.property("atom_idx"))
             key = combo.currentData()
             if key is None:
-                self._overrides.pop(int(idx), None)
+                self._overrides.pop(idx, None)
             else:
-                self._overrides[int(idx)] = str(key)
+                self._overrides[idx] = str(key)
+            if idx in self._row_atom:
+                self._set_row_highlight(self._row_atom.index(idx), key is not None)
 
         # -- actions -----------------------------------------------------
-        def apply(self):
+        def _commit(self):
             if callable(self._on_apply):
                 self._on_apply(dict(self._overrides))
+
+        def apply(self):
+            self._commit()
+
+        def apply_and_optimize(self):
+            if callable(self._on_apply_and_optimize):
+                self._on_apply_and_optimize(dict(self._overrides))
+            else:  # pragma: no cover - defensive
+                self._commit()
 
         def clear_all(self):
             self._overrides = {}
             self.load_atoms()
-            if callable(self._on_apply):
-                self._on_apply({})
+            self._commit()
 
         def _maybe_reload(self):
             mol = self._mol()
@@ -428,6 +495,9 @@ if _HAVE_QT:
             plotter.render()
 
         def closeEvent(self, event):  # noqa: N802 (Qt override)
+            # Commit the working copy so overrides survive closing/reopening the
+            # window (and are saved with the project) even without pressing Apply.
+            self._commit()
             self._disable_plotter_picking()
             plotter = getattr(self.context, "plotter", None)
             if plotter is not None:

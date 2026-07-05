@@ -118,7 +118,7 @@ bent, and a conjugated (sp²) amide nitrogen stays planar.
 
 Connectivity alone cannot always determine a coordination geometry — a
 4-coordinate metal may be square-planar *or* tetrahedral, and a bare metal
-centre may have no reliable hybridization at all. **3D Edit → Metal Geometry
+centre may have no reliable hybridization at all. **3D Edit → PMEFF Metal Geometry
 Override** (also a button in *PMEFF Settings*) opens a modeless table where you
 can force the geometry of individual atoms:
 
@@ -131,15 +131,21 @@ can force the geometry of individual atoms:
 | **Tetrahedral** | 109.47° |
 | **Octahedral** | cis 90° / trans 180° |
 
-The table lists the current molecule's atoms with a *Show metals only* filter
-(on by default — uncheck it to override carbon or any other element). Click an
-atom in the 3D view to jump to its row; selected rows are highlighted in 3D.
+The table lists the current molecule's atoms (an **Atom ID** column identifies
+each) with a *Show metals only* filter (on by default — uncheck it to override
+carbon or any other element). Each atom's drop-down only enables geometries that
+fit its neighbor count (e.g. *Linear* is disabled on a 3-coordinate center), and
+rows with an active override are tinted light blue. Click an atom in the 3D view
+to jump to its row; selected rows are highlighted in 3D.
+
 Overrides are **entirely opt-in**: an atom left on *Auto* behaves exactly as
 before, so the shipped defaults (including the d8 square-planar / octahedral
 auto-detection) are unchanged. They are also **independent of the electronic-
 effects setting** — a forced geometry applies whether or not electronic effects
-are on. Press **Apply**, then run *Optimize 3D (PMEFF)* to relax under the new
-targets. Overrides are saved with the project and restored when it is reopened.
+are on. **Apply** stores the overrides without moving atoms (then run *Optimize
+3D (PMEFF)* when you like); **Apply and Optimize** stores them and relaxes the
+molecule immediately. Overrides persist across closing the window and are saved
+with the project, restored when it is reopened.
 
 Geometry optimization uses **FIRE 2.0** (Fast Inertial Relaxation Engine) for
 the far-from-minimum regime and hands over to an **L-BFGS finisher** in the
