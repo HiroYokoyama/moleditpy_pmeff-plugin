@@ -160,8 +160,10 @@ except ImportError:  # headless / test environment
 
 
 if _HAVE_QT:
-    # Light-blue tint marking a row whose atom carries an active override.
-    _HIGHLIGHT = QColor(205, 227, 251)
+    # Row tints: light blue = unsaved (not yet applied) change; light green =
+    # an applied (committed) override; transparent = no override.
+    _BLUE = QColor(205, 227, 251)
+    _GREEN = QColor(206, 240, 206)
     _NO_BRUSH = QColor(0, 0, 0, 0)
 
     class _ClickFilter(QObject):
@@ -227,8 +229,8 @@ if _HAVE_QT:
                 "atoms — mainly metal centers, whose geometry connectivity "
                 "alone cannot determine. <b>Auto</b> keeps the default "
                 "behavior. Options that don't fit an atom's neighbor count are "
-                "disabled; atoms with unsaved changes are tinted blue until you "
-                "Apply. Click an atom in the 3D view to locate its row."
+                "disabled. Unsaved changes are tinted blue; applied overrides "
+                "turn green. Click an atom in the 3D view to locate its row."
             )
             intro.setWordWrap(True)
             layout.addWidget(intro)
@@ -336,11 +338,19 @@ if _HAVE_QT:
             combo.currentIndexChanged.connect(self._on_geometry_changed)
             self.table.setCellWidget(row, self._COL_GEOM, combo)
 
-            # Blue marks a pending (unsaved) change; committed rows are white.
-            self._set_row_highlight(row, idx in self._dirty)
+            self._paint_row(row)
 
-        def _set_row_highlight(self, row, active):
-            brush = _HIGHLIGHT if active else _NO_BRUSH
+        def _paint_row(self, row):
+            """Tint a row: blue = unsaved change, green = applied override."""
+            if row >= len(self._row_atom):
+                return
+            idx = self._row_atom[row]
+            if idx in self._dirty:
+                brush = _BLUE
+            elif idx in self._overrides:
+                brush = _GREEN
+            else:
+                brush = _NO_BRUSH
             for col in (self._COL_ID, self._COL_ELEM, self._COL_NBR):
                 item = self.table.item(row, col)
                 if item is not None:
@@ -359,7 +369,7 @@ if _HAVE_QT:
             # Any edit is an unsaved change until Apply — mark the row blue.
             self._dirty.add(idx)
             if idx in self._row_atom:
-                self._set_row_highlight(self._row_atom.index(idx), True)
+                self._paint_row(self._row_atom.index(idx))
 
         # -- actions -----------------------------------------------------
         def _commit(self):
@@ -367,10 +377,10 @@ if _HAVE_QT:
                 self._on_apply(dict(self._overrides))
 
         def _mark_committed(self):
-            """Clear the unsaved-change tint: applied rows go back to white."""
+            """Drop the unsaved (blue) tint; applied overrides turn green."""
             self._dirty = set()
             for row in range(self.table.rowCount()):
-                self._set_row_highlight(row, False)
+                self._paint_row(row)
 
         def apply(self):
             self._commit()

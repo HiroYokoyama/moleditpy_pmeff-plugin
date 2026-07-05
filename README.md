@@ -134,10 +134,10 @@ can force the geometry of individual atoms:
 The table lists the current molecule's atoms (an **Atom ID** column identifies
 each) with a *Show metals only* filter (on by default — uncheck it to override
 carbon or any other element). Each atom's drop-down only enables geometries that
-fit its neighbor count (e.g. *Linear* is disabled on a 3-coordinate center), and
-rows with an unsaved change are tinted light blue until you Apply (then they
-return to white). Click an atom in the 3D view to jump to its row; selected rows
-are highlighted in 3D.
+fit its neighbor count (e.g. *Linear* is disabled on a 3-coordinate center).
+Rows are colour-coded: **blue** = an unsaved change, **green** = an applied
+override, white = none. Click an atom in the 3D view to jump to its row;
+selected rows are highlighted in 3D.
 
 Overrides are **entirely opt-in**: an atom left on *Auto* behaves exactly as
 before, so the shipped defaults (including the d8 square-planar / octahedral
