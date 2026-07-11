@@ -279,6 +279,74 @@ def test_gradient_matches_numeric_near_linear_angle():
     assert np.allclose(analytic, numeric, atol=1e-4)
 
 
+def test_sp_center_linear_bends_use_soft_constant():
+    # C-C#C-C chain: the two angles centered on the sp carbons are linear
+    # targets and must compile with the soft sp bending constant, so that
+    # ring strain can actually bend a triple-bond unit instead of being
+    # dumped entirely into the sp3 framework.
+    topo = ff.build_topology(
+        [6, 6, 6, 6],
+        [(0, 1), (1, 2), (2, 3)],
+        ["SP3", "SP", "SP", "SP3"],
+        bond_orders=[1, 3, 1],
+    )
+    arrays = topo.compiled()
+    assert len(arrays["angle_k"]) == 2
+    for t0, k in zip(arrays["angle_t0"], arrays["angle_k"]):
+        assert t0 == pytest.approx(math.pi)
+        assert k == pytest.approx(ff._K_ANGLE_LINEAR_SP)
+
+
+def test_non_sp_and_metal_linear_angles_keep_full_stiffness():
+    # A 180-degree target whose center carries no "SP" label (here a
+    # geometry-override linear metal center) is a coordination constraint,
+    # not an sp bend — it must keep the ordinary angle constant.
+    topo = ff.build_topology(
+        [47, 7, 7],
+        [(0, 1), (0, 2)],
+        [None, None, None],
+        geometry_overrides={0: "linear"},
+    )
+    arrays = topo.compiled()
+    assert arrays["angle_t0"][0] == pytest.approx(math.pi)
+    assert arrays["angle_k"][0] == pytest.approx(ff._K_ANGLE)
+
+    # Without hybridization labels at all, every angle stays at _K_ANGLE.
+    topo2 = ff.build_topology([6, 6, 6], [(0, 1), (1, 2)], None)
+    assert np.allclose(topo2.compiled()["angle_k"], ff._K_ANGLE)
+
+
+def test_soft_linear_bend_still_relaxes_to_straight():
+    # Softer does not mean floppy: an unstrained sp center bent by ~20 deg
+    # must still relax back to 180.
+    topo = ff.build_topology(
+        [6, 6, 6, 6],
+        [(0, 1), (1, 2), (2, 3)],
+        ["SP3", "SP", "SP", "SP3"],
+        bond_orders=[1, 3, 1],
+    )
+    coords = np.array(
+        [
+            [-2.6, 0.9, 0.0],
+            [-1.4, 0.3, 0.0],
+            [0.0, 0.0, 0.0],
+            [1.5, 0.4, 0.1],
+        ]
+    )
+    out, result = ff.optimize(coords, topo, max_iter=2000)
+    assert result.converged
+    for i, j, k in [(0, 1, 2), (1, 2, 3)]:
+        v1 = out[i] - out[j]
+        v2 = out[k] - out[j]
+        angle = math.degrees(
+            math.acos(
+                float(np.dot(v1, v2))
+                / float(np.linalg.norm(v1) * np.linalg.norm(v2))
+            )
+        )
+        assert angle == pytest.approx(180.0, abs=1.5)
+
+
 def test_vdw_14_pairs_get_half_epsilon():
     # Pentane-like chain: (0,3) is 1-4 (half eps), (0,4) is 1-5 (full eps).
     topo = ff.build_topology([6] * 5, [(0, 1), (1, 2), (2, 3), (3, 4)], None)

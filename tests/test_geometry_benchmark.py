@@ -22,6 +22,7 @@ import numpy as np
 import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem
+from rdkit.Geometry import Point3D
 
 from pmeff_plugin import forcefield as ff
 
@@ -158,3 +159,68 @@ def test_optimizer_reaches_topology_rest_lengths(smiles):
         assert abs(got - r0) < 0.05, (
             f"{smiles}: bond {i}-{j} = {got:.3f}, rest length {r0:.3f}"
         )
+
+
+# --- Strained linear centers -------------------------------------------------
+# A nominally linear sp center inside a medium ring must bend to close the
+# ring (cyclooctyne's C-C#C is ~155 deg experimentally); with sp bends priced
+# like sp3 bends the triple-bond unit stays pinned near 180 and the strain is
+# dumped entirely into the sp3 framework. ETKDG refuses to embed medium-ring
+# alkynes, so the ring starts from a crude flat polygon and relies on the
+# FIRE phase to fold it — exactly the plugin's cleanup use case.
+
+
+def _flat_ring_start(smiles: str, n_ring: int):
+    mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+    conf = Chem.Conformer(mol.GetNumAtoms())
+    radius = 1.5 / (2.0 * math.sin(math.pi / n_ring))
+    heavy = [a.GetIdx() for a in mol.GetAtoms() if a.GetAtomicNum() > 1]
+    for pos, idx in enumerate(heavy):
+        th = 2.0 * math.pi * pos / n_ring
+        conf.SetAtomPosition(
+            idx, Point3D(radius * math.cos(th), radius * math.sin(th), 0.0)
+        )
+    for atom in mol.GetAtoms():
+        if atom.GetAtomicNum() != 1:
+            continue
+        h = atom.GetIdx()
+        c = atom.GetNeighbors()[0].GetIdx()
+        p = conf.GetAtomPosition(c)
+        r = math.hypot(p.x, p.y) or 1.0
+        z = 0.9 if h % 2 else -0.9
+        conf.SetAtomPosition(
+            h, Point3D(p.x * (r + 0.6) / r, p.y * (r + 0.6) / r, z)
+        )
+    mol.RemoveAllConformers()
+    mol.AddConformer(conf, assignId=True)
+    return mol
+
+
+def test_strained_ring_bends_sp_centers():
+    # Cyclooctyne: both C-C#C angles must come out clearly bent (expt ~155
+    # deg; PMEFF lands near 159), and the ring must stay closed — a straight
+    # alkyne here means the sp bend term is too stiff.
+    mol = _flat_ring_start("C1CCC#CCCC1", 8)
+    success, result = ff.optimize_rdkit_mol(mol, max_iter=4000, **_KW)
+    assert success is True
+    conf = mol.GetConformer()
+    coords = np.array(
+        [list(conf.GetAtomPosition(i)) for i in range(mol.GetNumAtoms())]
+    )
+    for ijk in [(2, 3, 4), (3, 4, 5)]:
+        got = _angle_deg(coords, *ijk)
+        assert 148.0 < got < 170.0, f"C-C#C angle {got:.1f} deg not bent"
+    ring = [(i, (i + 1) % 8) for i in range(8)]
+    for i, j in ring:
+        assert _bond_length(coords, i, j) < 1.75, "ring did not stay closed"
+
+
+def test_unstrained_sp_centers_stay_straight():
+    # The soft sp bend must not make unstrained triple bonds droop.
+    for smiles, ijks in [
+        ("CC#CC", [(0, 1, 2), (1, 2, 3)]),
+        ("N#Cc1ccccc1", [(0, 1, 2)]),
+    ]:
+        _mol, coords, _res = _optimized_positions(smiles)
+        for ijk in ijks:
+            assert _angle_deg(coords, *ijk) > 177.0

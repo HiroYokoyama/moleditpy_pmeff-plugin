@@ -203,6 +203,17 @@ _VDW_OFFSET_A = 0.90
 # topology.
 _K_BOND = 700.0  # energy / Angstrom^2
 _K_ANGLE = 120.0  # energy / radian^2
+# In-plane bends at sp-hybridized main-group centers (C in alkynes, nitriles,
+# cumulenes) are several times softer than ordinary sp2/sp3 bends — measured
+# sp bending force constants sit around 0.2-0.4 aJ/rad^2, so bending a
+# triple-bond unit 10 deg costs well under 1 kcal/mol. That softness is how
+# strained rings accommodate a nominally linear center (cyclooctyne's C-C#C
+# is ~155 deg); pricing sp bends like sp3 bends pins alkynes dead straight
+# and dumps all ring strain elsewhere. Metal trans/axial 180-degree targets
+# keep the full _K_ANGLE (they are coordination constraints, not sp bends):
+# the soft constant applies only where the central atom's hybridization label
+# is exactly "SP".
+_K_ANGLE_LINEAR_SP = 30.0  # energy / radian^2
 _K_OOP = 40.0  # energy / radian^2, on the angle-sum around sp2 centers
 _VDW_EPS = 0.10  # LJ well depth (energy) for the reference atom (carbon)
 _VDW_14_SCALE = 0.5  # conventional scaling of 1-4 LJ interactions
@@ -781,12 +792,31 @@ class Topology:
             if self.disp_pairs
             else np.zeros((0, 4))
         )
+        # Per-angle bending stiffness: linear targets at genuinely
+        # sp-hybridized centers use the soft alkyne/nitrile constant; every
+        # other angle — including metal trans/axial 180-degree targets, whose
+        # centers carry no "SP" label — keeps the ordinary one.
+        angle_k = np.full(len(angles), _K_ANGLE)
+        if self.hybridizations is not None and len(angles):
+            centers = angles[:, 1].astype(int)
+            sp_center = np.array(
+                [
+                    str(self.hybridizations[j] or "").upper() == "SP"
+                    for j in centers
+                ]
+            )
+            angle_k = np.where(
+                sp_center & (angles[:, 3] > math.pi - 1e-6),
+                _K_ANGLE_LINEAR_SP,
+                _K_ANGLE,
+            )
         arrays: Dict[str, np.ndarray] = {
             "bond_ij": bonds[:, :2].astype(int),
             "bond_r0": bonds[:, 2],
             "bond_k": bonds[:, 3],
             "angle_ijk": angles[:, :3].astype(int),
             "angle_t0": angles[:, 3],
+            "angle_k": angle_k,
             "tors_ijkl": torsions[:, :4].astype(int),
             "tors_v": torsions[:, 4],
             "tors_n": torsions[:, 5],
@@ -1507,11 +1537,14 @@ def energy_and_gradient(
     # (theta0 = pi, sp centers): k * (1 + cos theta), which has the same
     # curvature at theta = pi but a finite gradient there — the harmonic
     # form's d(theta)/d(cos) diverges exactly at the linear minimum.
+    # k is per-angle ("angle_k"): soft for sp-center linear bends, _K_ANGLE
+    # otherwise — see the compiled() builder.
     angle_ijk = arrays["angle_ijk"]
     if len(angle_ijk):
         ii, jj, kk = angle_ijk[:, 0], angle_ijk[:, 1], angle_ijk[:, 2]
         theta, cos_t, dcos_di, dcos_dk = _bend_terms(coords, ii, jj, kk)
         t0 = arrays["angle_t0"]
+        k_ang = arrays["angle_k"]
         # Square-planar sentinel: pull toward whichever ideal vertex angle
         # (90 or 180 degrees) is closer, letting cis/trans assignment emerge
         # from the geometry itself.
@@ -1528,14 +1561,14 @@ def energy_and_gradient(
                 np.sum(
                     np.where(
                         linear,
-                        _K_ANGLE * (1.0 + cos_t),
-                        0.5 * _K_ANGLE * dtheta * dtheta,
+                        k_ang * (1.0 + cos_t),
+                        0.5 * k_ang * dtheta * dtheta,
                     )
                 )
             ),
         )
         sin_t = np.sqrt(np.maximum(1.0 - cos_t * cos_t, 1e-12))
-        de_dcos = np.where(linear, _K_ANGLE, -_K_ANGLE * dtheta / sin_t)[:, None]
+        de_dcos = np.where(linear, k_ang, -k_ang * dtheta / sin_t)[:, None]
         gi = de_dcos * dcos_di
         gk = de_dcos * dcos_dk
         np.add.at(grad, ii, gi)
