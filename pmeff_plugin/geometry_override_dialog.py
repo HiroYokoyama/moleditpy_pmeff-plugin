@@ -448,10 +448,15 @@ if _HAVE_QT:
                 mol = self._mol()
                 if plotter is None or mol is None or not mol.GetNumConformers():
                     return
-                vtk_y = widget.height() - y
+                # Scale Qt logical px → VTK physical px for HiDPI/Retina (macOS
+                # devicePixelRatio 2); without it the pick lands toward the
+                # bottom-left and you must click up-and-right. No-op elsewhere.
+                ratio = widget.devicePixelRatioF()
+                px = x * ratio
+                vtk_y = (widget.height() - y) * ratio
                 picker = vtk.vtkCellPicker()
                 picker.SetTolerance(0.005)
-                picker.Pick(x, vtk_y, 0, plotter.renderer)
+                picker.Pick(px, vtk_y, 0, plotter.renderer)
                 pick_pos = picker.GetPickPosition()
 
                 conf = mol.GetConformer()
