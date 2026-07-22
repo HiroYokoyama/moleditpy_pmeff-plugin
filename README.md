@@ -2,6 +2,7 @@
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21151897.svg)](https://doi.org/10.5281/zenodo.21151897)
 [![Tests](https://github.com/HiroYokoyama/moleditpy_pmeff-plugin/actions/workflows/test.yml/badge.svg)](https://github.com/HiroYokoyama/moleditpy_pmeff-plugin/actions/workflows/test.yml)
+![Test Coverage](https://img.shields.io/badge/coverage->80%25-green)
 [![PyPI](https://img.shields.io/pypi/v/pmeff.svg)](https://pypi.org/project/pmeff/)
 [![Downloads](https://img.shields.io/github/downloads/HiroYokoyama/moleditpy_pmeff-plugin/total)](https://github.com/HiroYokoyama/moleditpy_pmeff-plugin/releases)
 
