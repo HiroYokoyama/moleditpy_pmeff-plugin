@@ -197,6 +197,32 @@ _DEFAULT_RADIUS_A = 1.50
 # (tabulated 1.52); covalent(H)=0.32 -> 1.22 (tabulated 1.20).
 _VDW_OFFSET_A = 0.90
 
+# ---------------------------------------------------------------------------
+# EMPIRICAL PARAMETERS
+#
+# PMEFF is not derived from a published parameter set: most of what follows is
+# fitted or hand-tuned so that minimized geometries come out right, and the
+# energy scale is internally consistent rather than being kcal/mol. Treat any
+# absolute energy as arbitrary units; only geometries and relative energies
+# within one topology are meaningful.
+#
+# Constants that are FITTED to reference geometries, and what they were fitted
+# against, so a re-fit starts from the right target:
+#
+#   _K_ANGLE_LINEAR_SP     cycloalkyne C-C#C angles  (tests/test_cyclic_alkyne)
+#   _POLAR_CONTRACTION_*   Si-O / P-O / C-F / Na-F bond lengths
+#   _QEQ_HARDNESS_SCALE    damping of QEq over-polarization on metals/boron
+#   _CHI_HYB_SCALE         Bent's rule s-character shift, sp/sp2 only
+#   _MORSE_DEPTH_FACTOR    sets D so Morse curvature matches _K_BOND at r0
+#   _HBOND_EPS/_HBOND_R0_A H-bond well depth and D...A distance
+#   _EPS_RADIUS_REF        LJ well-depth scaling relative to carbon
+#   _VDW_OFFSET_A          covalent radius -> vdW radius offset
+#   _BOND_ORDER_ANCHORS    C-C / C=C / C#C rest lengths
+#
+# Derived or tabulated (NOT free to tune): _K_COULOMB, _EV_COULOMB,
+# _CHI_EV_PER_PAULING, the covalent-radius table, and the element sets.
+# ---------------------------------------------------------------------------
+
 # Force constants (arbitrary but internally consistent energy units). Bonds are
 # made much stiffer than angles, which are stiffer than the torsion, improper
 # and weak vdW terms, so minimized geometries are dominated by the bonded
@@ -207,13 +233,35 @@ _K_ANGLE = 120.0  # energy / radian^2
 # cumulenes) are several times softer than ordinary sp2/sp3 bends — measured
 # sp bending force constants sit around 0.2-0.4 aJ/rad^2, so bending a
 # triple-bond unit 10 deg costs well under 1 kcal/mol. That softness is how
-# strained rings accommodate a nominally linear center (cyclooctyne's C-C#C
-# is ~155 deg); pricing sp bends like sp3 bends pins alkynes dead straight
-# and dumps all ring strain elsewhere. Metal trans/axial 180-degree targets
-# keep the full _K_ANGLE (they are coordination constraints, not sp bends):
-# the soft constant applies only where the central atom's hybridization label
-# is exactly "SP".
-_K_ANGLE_LINEAR_SP = 30.0  # energy / radian^2
+# strained rings accommodate a nominally linear center.
+#
+# EMPIRICAL, and verified by calibration: minimize the cycloalkyne series and
+# compare the C-C#C angle against gas-phase electron diffraction / high-level
+# values — cyclooctyne 158.5 deg, cyclononyne 163.5, cyclodecyne 170.0, plus
+# 2-butyne and 1-octyne at 180. RMSE over those five:
+#
+#     k_sp     12     18     24     30     36     45     60     90    110
+#     RMSE   6.22   2.61   2.03   1.62   1.32   2.37   2.82   3.70   4.24
+#
+# The basin is narrow and sits at 30-36; error climbs steadily above it (an
+# over-stiff sp bend leaves cyclooctyne at 162+ deg and pushes the strain into
+# the sp3 linker), and 12 is far too floppy. 30 and 36 are indistinguishable
+# given the few-degree spread in the reference values, so the physically
+# motivated 30 stands.
+#
+# CALIBRATION PROTOCOL — get this wrong and the fit inverts. These rings have
+# several conformers whose C-C#C angle differs by >10 deg, so the comparison
+# must be against the GLOBAL minimum: embed from a dozen random starts, relax
+# each, and keep the lowest-energy one. Fitting to a single MMFF-seeded start
+# lands in a higher-energy, more-bent conformer and makes the RMSE curve run
+# the other way, which argues for a stiffness around 110 — the opposite of the
+# truth. tests/test_cyclic_alkyne.py implements the correct protocol; re-fit
+# through it if the angle or torsion terms change.
+#
+# Metal trans/axial 180-degree targets keep the full _K_ANGLE (they are
+# coordination constraints, not sp bends): the soft constant applies only
+# where the central atom's hybridization label is exactly "SP".
+_K_ANGLE_LINEAR_SP = 30.0  # energy / radian^2 (empirical, see above)
 _K_OOP = 40.0  # energy / radian^2, on the angle-sum around sp2 centers
 _VDW_EPS = 0.10  # LJ well depth (energy) for the reference atom (carbon)
 _VDW_14_SCALE = 0.5  # conventional scaling of 1-4 LJ interactions
@@ -800,10 +848,7 @@ class Topology:
         if self.hybridizations is not None and len(angles):
             centers = angles[:, 1].astype(int)
             sp_center = np.array(
-                [
-                    str(self.hybridizations[j] or "").upper() == "SP"
-                    for j in centers
-                ]
+                [str(self.hybridizations[j] or "").upper() == "SP" for j in centers]
             )
             angle_k = np.where(
                 sp_center & (angles[:, 3] > math.pi - 1e-6),
