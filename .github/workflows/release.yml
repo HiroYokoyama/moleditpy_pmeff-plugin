@@ -12,6 +12,11 @@ name: Release
 on:
   workflow_dispatch:
     inputs:
+      zenodo:
+        description: 'Upload and publish to Zenodo after the release'
+        required: false
+        type: boolean
+        default: true
       version:
         description: 'Release version (e.g. 1.0.0 — without leading v)'
         required: true
@@ -199,3 +204,57 @@ jobs:
           git add pmeff/forcefield.py pmeff/_version.py
           git commit -m "chore: sync pmeff package to ${GITHUB_REF_NAME} [skip ci]"
           git push origin HEAD:main
+
+  # Archiving runs here rather than from zenodo.yml's `release: published`
+  # trigger: this workflow mints the release with GITHUB_TOKEN, and GitHub does
+  # not raise workflow-triggering events for token-authored actions, so that
+  # trigger never fires. Same shape as the main app's release.yml.
+  zenodo-upload:
+    # A tag push always archives; a manual dispatch can opt out.
+    if: ${{ github.event_name == 'push' || inputs.zenodo }}
+    runs-on: ubuntu-latest
+    needs: release
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Resolve tag
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            TAG="${GITHUB_REF_NAME}"
+          else
+            TAG="v${{ github.event.inputs.version }}"
+          fi
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "Archiving tag: $TAG"
+
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p dist
+          gh release download "$TAG" --pattern "*.zip" --dir dist --skip-existing || true
+          curl -L -o "dist/source.tar.gz" \
+            "https://github.com/${{ github.repository }}/archive/refs/tags/${TAG}.tar.gz"
+          ls -la dist/
+
+      - name: Upload and Publish to Zenodo
+        env:
+          ZENODO_TOKEN: ${{ secrets.ZENODO_TOKEN }}
+        run: |
+          if [ -z "$ZENODO_TOKEN" ]; then
+            echo "ERROR: ZENODO_TOKEN is not set, so $TAG was released but not archived." >&2
+            exit 1
+          fi
+          # --deposition-id is omitted on purpose: DEPOSITION_ID in the script
+          # is the single source of truth for which record family to version.
+          python scripts/update_zenodo.py \
+            --publish \
+            --version-string "$TAG" \
+            dist/*

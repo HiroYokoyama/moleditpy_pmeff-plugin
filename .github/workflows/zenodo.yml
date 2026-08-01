@@ -1,11 +1,12 @@
 name: Zenodo Production Upload
 
 on:
-  # Publishing a GitHub release archives it automatically. Re-running is safe:
-  # update_zenodo.py refuses a version identical to the record's current one,
-  # so a repeat cannot mint a duplicate DOI.
-  release:
-    types: [published]
+  # Manual backfill and re-runs only. Normal archiving happens in the
+  # zenodo-upload job of release.yml, which a tag push drives end to end;
+  # a `release: published` trigger here as well would be a second path to the
+  # same action. Re-running is safe regardless: update_zenodo.py refuses a
+  # version identical to the record's current one, so a repeat cannot mint a
+  # duplicate DOI.
   workflow_dispatch:
     inputs:
       tag:
