@@ -1,0 +1,84 @@
+name: Zenodo Production Upload
+
+on:
+  # Publishing a GitHub release archives it automatically. Re-running is safe:
+  # update_zenodo.py refuses a version identical to the record's current one,
+  # so a repeat cannot mint a duplicate DOI.
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to upload (e.g. v2.2.0). If left empty, the latest release will be used."
+        required: false
+        type: string
+      deposition_id:
+        description: "Override the Zenodo record ID (defaults to DEPOSITION_ID in scripts/update_zenodo.py)."
+        required: false
+        type: string
+      draft:
+        description: "Keep as a draft (do not publish)."
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  zenodo-upload:
+    runs-on: ubuntu-latest
+    # A pre-release is not the thing to mint a permanent DOI for.
+    if: github.event_name != 'release' || github.event.release.prerelease == false
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Download Release Assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p dist
+
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+          else
+            TAG="${{ github.event.inputs.tag }}"
+            if [ -z "$TAG" ]; then
+              echo "No tag specified, fetching latest release tag..."
+              TAG=$(gh release view --json tagName --template '{{.tagName}}')
+            fi
+          fi
+          echo "Processing tag: $TAG"
+          echo "TAG=$TAG" >> $GITHUB_ENV
+
+          # Release assets, if this release carries any.
+          gh release download "$TAG" --pattern "*.zip" --dir dist --skip-existing || true
+
+          # The source archive is always available for a tag.
+          curl -L -o "dist/source.tar.gz" "https://github.com/${{ github.repository }}/archive/refs/tags/${TAG}.tar.gz"
+
+          echo "Downloaded assets:"
+          ls -la dist/
+
+      - name: Upload and Publish to Zenodo
+        env:
+          ZENODO_TOKEN: ${{ secrets.ZENODO_TOKEN }}
+        run: |
+          DEP_ARG=""
+          if [ -n "${{ github.event.inputs.deposition_id }}" ]; then
+            DEP_ARG="--deposition-id ${{ github.event.inputs.deposition_id }}"
+          fi
+
+          PUBLISH_ARG="--publish"
+          if [ "${{ github.event.inputs.draft }}" = "true" ]; then
+            PUBLISH_ARG=""
+          fi
+
+          python scripts/update_zenodo.py             $PUBLISH_ARG             $DEP_ARG             --version-string "$TAG"             dist/*
