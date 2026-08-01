@@ -5,6 +5,7 @@
 ![Test Coverage](https://img.shields.io/badge/coverage->90%25-green)
 [![PyPI](https://img.shields.io/pypi/v/pmeff.svg)](https://pypi.org/project/pmeff/)
 [![Downloads](https://img.shields.io/github/downloads/HiroYokoyama/moleditpy_pmeff-plugin/total)](https://github.com/HiroYokoyama/moleditpy_pmeff-plugin/releases)
+[![GitHub tag](https://img.shields.io/github/v/tag/HiroYokoyama/moleditpy_pmeff-plugin?label=version)](https://github.com/HiroYokoyama/moleditpy_pmeff-plugin/tags)
 
 
 A [MoleditPy](https://github.com/HiroYokoyama/python_molecular_editor) plugin that
