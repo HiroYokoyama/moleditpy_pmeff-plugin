@@ -7,6 +7,8 @@
 [![GitHub tag](https://img.shields.io/github/v/tag/HiroYokoyama/moleditpy_pmeff-plugin?label=version)](https://github.com/HiroYokoyama/moleditpy_pmeff-plugin/tags)
 [![GitHub Downloads](https://img.shields.io/github/downloads/HiroYokoyama/moleditpy_pmeff-plugin/total)](https://github.com/HiroYokoyama/moleditpy_pmeff-plugin/releases)
 
+Repo: [https://github.com/HiroYokoyama/moleditpy_pmeff-plugin/](https://github.com/HiroYokoyama/moleditpy_pmeff-plugin/)
+
 
 A [MoleditPy](https://github.com/HiroYokoyama/python_molecular_editor) plugin that
 adds **PMEFF**, a self-contained *universal* molecular force field covering the
