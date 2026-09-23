@@ -27,7 +27,7 @@ import tempfile
 from pathlib import Path
 
 PLUGIN_NAME = "PMEFF Plugin"
-PLUGIN_VERSION = "1.4.0"
+PLUGIN_VERSION = "1.4.1"
 # Must equal the GitHub username (the moleditpy registry enforces this).
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
@@ -38,7 +38,7 @@ PLUGIN_DESCRIPTION = (
     "required."
 )
 PLUGIN_CATEGORY = "Optimization"
-PLUGIN_TAGS = ["Optimization", "Force Field", "3D"]
+PLUGIN_TAGS = ["Optimization"]
 PLUGIN_SUPPORTED_MOLEDITPY_VERSION = ">=4.0.0, <5.0.0"
 PLUGIN_DEPENDENCIES = ["numpy", "rdkit"]
 
