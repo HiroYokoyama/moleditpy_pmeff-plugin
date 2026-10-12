@@ -8,7 +8,7 @@ import pytest
 
 pytest.importorskip("PyQt6")
 from PyQt6.QtCore import QThread, QTimer
-from PyQt6.QtWidgets import QApplication, QTableWidget
+from PyQt6.QtWidgets import QApplication, QPushButton, QTableWidget
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
