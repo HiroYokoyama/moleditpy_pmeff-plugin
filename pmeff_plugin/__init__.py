@@ -285,24 +285,81 @@ def _open_settings_dialog(context) -> None:
 
 def _optimize(mol, context) -> bool:
     """Relax *mol* in place with PMEFF. Returns True on success."""
-    from .forcefield import optimize_rdkit_mol
+    from .forcefield import OptimizationCancelled, optimize_rdkit_mol
 
     kwargs = _settings_kwargs()
+    overrides = _overrides_kwarg()
     try:
-        success, result = optimize_rdkit_mol(
+        working, output = _calculate(
+            context,
+            "PMEFF Optimization",
             mol,
-            max_iter=_MAX_ITER,
-            geometry_overrides=_overrides_kwarg(),
-            **kwargs,
+            lambda copy, report, cancel: optimize_rdkit_mol(
+                copy,
+                max_iter=_MAX_ITER,
+                geometry_overrides=overrides,
+                progress_callback=report,
+                cancel_callback=cancel,
+                **kwargs,
+            ),
         )
+        success, result = output
+    except OptimizationCancelled:
+        _status(context, "PMEFF: cancelled; original geometry preserved.", 5000)
+        return False
     except Exception as exc:  # pragma: no cover - defensive GUI guard
         logger.exception("PMEFF optimization failed")
         _status(context, f"PMEFF optimization failed: {exc}", 5000)
+        _display_result(context, "PMEFF Optimization Failed", str(exc), [], [])
         return False
 
     if not success:
         _status(context, "PMEFF: no 3D geometry to optimize.", 4000)
+        _display_result(
+            context, "PMEFF Optimization", "No 3D geometry to optimize.", [], []
+        )
         return False
+
+    if result is not None:
+        state = (
+            "Converged"
+            if result.converged
+            else "Not converged: iteration limit reached"
+        )
+        accepted = _display_result(
+            context,
+            "PMEFF Optimization Result",
+            state,
+            ["Property", "Value"],
+            [
+                ["Iterations", str(result.steps)],
+                ["Energy", f"{result.energy:.6f}"],
+                ["Maximum force", f"{result.max_force:.6f}"],
+            ],
+            "PMEFF uses internal force-field units. An unconverged geometry may "
+            "remain distorted; increase the iteration budget or improve the starting geometry.",
+            review=not result.converged,
+        )
+        if not accepted:
+            _status(context, "PMEFF: original geometry preserved.", 5000)
+            return False
+
+    # Only the GUI thread writes the host's molecule, after worker completion.
+    from rdkit import Chem
+
+    current = getattr(context, "current_molecule", None)
+    if isinstance(current, Chem.Mol) and current is not mol:  # pylint: disable=no-member
+        _status(
+            context,
+            "PMEFF: molecule changed during calculation; result discarded.",
+            5000,
+        )
+        return False
+    if mol is not None and working.GetNumConformers():
+        target = mol.GetConformer()
+        source = working.GetConformer()
+        for i in range(mol.GetNumAtoms()):
+            target.SetAtomPosition(i, source.GetAtomPosition(i))
 
     # Record the options this successful run used, for project persistence.
     global _last_opt_settings
@@ -323,24 +380,36 @@ def _optimize(mol, context) -> bool:
 
 def _show_energy(context) -> None:
     """Report the PMEFF single-point energy of the current molecule."""
-    from .forcefield import compute_energy_components
+    from .forcefield import OptimizationCancelled, compute_energy_components
 
     mol = context.current_molecule
     if mol is None:
         _status(context, "PMEFF: no molecule loaded.", 3000)
+        _display_result(context, "PMEFF Energy", "No molecule loaded.", [], [])
         return
 
     try:
-        comp = compute_energy_components(
-            mol, geometry_overrides=_overrides_kwarg(), **_settings_kwargs()
+        kwargs, overrides = _settings_kwargs(), _overrides_kwarg()
+        _working, comp = _calculate(
+            context,
+            "PMEFF Single-Point Energy",
+            mol,
+            lambda copy, _report, _cancel: compute_energy_components(
+                copy, geometry_overrides=overrides, **kwargs
+            ),
         )
+    except OptimizationCancelled:
+        _status(context, "PMEFF energy calculation cancelled.", 5000)
+        return
     except Exception as exc:  # pragma: no cover - defensive GUI guard
         logger.exception("PMEFF energy evaluation failed")
         _status(context, f"PMEFF energy failed: {exc}", 5000)
+        _display_result(context, "PMEFF Energy Failed", str(exc), [], [])
         return
 
     if comp is None:
         _status(context, "PMEFF: molecule has no 3D coordinates.", 4000)
+        _display_result(context, "PMEFF Energy", "No 3D coordinates available.", [], [])
         return
 
     base = (
@@ -358,38 +427,79 @@ def _show_energy(context) -> None:
         f"PMEFF single-point energy: {comp['total']:.4f} ({base}{extras})",
         8000,
     )
+    _display_result(
+        context,
+        "PMEFF Single-Point Energy",
+        f"Total energy: {comp['total']:.6f}",
+        ["Energy term", "Energy"],
+        [
+            [k, f"{comp[k]:.6f}"]
+            for k in (
+                "bond",
+                "angle",
+                "torsion",
+                "oop",
+                "vdw",
+                "elec",
+                "hbond",
+                "disp",
+                "total",
+            )
+        ],
+        "Values are in PMEFF internal units and are intended for geometry cleanup, "
+        "not accurate thermochemistry.",
+    )
 
 
 def _check_minimum(context) -> None:
     """Report whether the current geometry is a true PMEFF minimum."""
-    from .forcefield import check_minimum
+    from .forcefield import OptimizationCancelled, check_minimum
 
     mol = context.current_molecule
     if mol is None:
         _status(context, "PMEFF: no molecule loaded.", 3000)
+        _display_result(context, "PMEFF Minimum Check", "No molecule loaded.", [], [])
         return
 
     try:
-        result = check_minimum(
-            mol, geometry_overrides=_overrides_kwarg(), **_settings_kwargs()
+        kwargs, overrides = _settings_kwargs(), _overrides_kwarg()
+        _working, result = _calculate(
+            context,
+            "PMEFF Minimum Check (Vibrational)",
+            mol,
+            lambda copy, report, cancel: check_minimum(
+                copy,
+                geometry_overrides=overrides,
+                progress_callback=report,
+                cancel_callback=cancel,
+                **kwargs,
+            ),
         )
+    except OptimizationCancelled:
+        _status(context, "PMEFF vibrational check cancelled.", 5000)
+        return
     except Exception as exc:  # pragma: no cover - defensive GUI guard
         logger.exception("PMEFF vibrational analysis failed")
         _status(context, f"PMEFF vibrational analysis failed: {exc}", 5000)
+        _display_result(context, "PMEFF Vibrational Check Failed", str(exc), [], [])
         return
 
     if result is None:
         _status(context, "PMEFF: molecule has no 3D coordinates.", 4000)
+        _display_result(
+            context, "PMEFF Minimum Check", "No 3D coordinates available.", [], []
+        )
         return
 
-    if result["is_minimum"]:
+    stationary = result["max_force"] < 1e-3
+    if result["is_minimum"] and stationary:
         _status(
             context,
             "PMEFF vibrational check: true minimum "
-            f"({result['num_zero']} rigid-body modes, 0 imaginary).",
+            f"({result['num_zero']} near-zero modes, 0 imaginary).",
             8000,
         )
-    else:
+    elif not result["is_minimum"]:
         lowest = float(result["frequencies"][0])
         _status(
             context,
@@ -398,6 +508,73 @@ def _check_minimum(context) -> None:
             f"{lowest:.3f}. Re-optimize from a perturbed geometry.",
             8000,
         )
+    else:
+        _status(
+            context,
+            "PMEFF minimum check: no imaginary modes, but geometry is not stationary.",
+            8000,
+        )
+
+    verdict = (
+        "Imaginary modes detected: geometry is not a minimum."
+        if result["num_imaginary"]
+        else "No imaginary modes; stationary within the optimizer force tolerance."
+        if stationary
+        else "No imaginary modes, but residual forces are too large to confirm a minimum."
+    )
+    tol = result["zero_tol"]
+    rows = []
+    for i, (frequency, eigenvalue) in enumerate(
+        zip(result["frequencies"], result["eigenvalues"]), 1
+    ):
+        kind = (
+            "Imaginary"
+            if eigenvalue < -tol
+            else "Near-zero"
+            if abs(eigenvalue) <= tol
+            else "Real"
+        )
+        rows.append([str(i), f"{frequency:.6f}", f"{eigenvalue:.6f}", kind])
+    _display_result(
+        context,
+        "PMEFF Minimum Check (Vibrational)",
+        f"{verdict}\nImaginary: {result['num_imaginary']}   Near-zero: {result['num_zero']}\n"
+        f"Maximum force: {result['max_force']:.6f}",
+        ["Mode", "Signed sqrt(λ)", "Eigenvalue λ", "Classification"],
+        rows,
+        f"Unit-mass modes in internal units, not cm⁻¹. Classification uses |λ| ≤ {tol:g}. "
+        "Near-zero modes include translations, rotations and possibly soft internal modes. "
+        "A zero-force saddle can require a perturbed starting geometry before re-optimization.",
+    )
+
+
+def _calculate(context, title, mol, operation):
+    """Snapshot molecular data; worker operations never access the live host."""
+    from rdkit import Chem
+
+    working = Chem.Mol(mol) if mol is not None else None  # pylint: disable=no-member
+
+    def job(report, cancel):
+        return operation(working, report, cancel)
+
+    try:
+        from .calculation_dialog import run_job
+    except ImportError:  # standalone/headless installations need no Qt
+        output = job(lambda *_args: None, lambda: False)
+    else:
+        output = run_job(title, job, _host_window(context))
+    return working, output
+
+
+def _display_result(context, title, summary, headers, rows, note="", review=False):
+    """Keep headless use working while showing persistent GUI result tables."""
+    try:
+        from .result_dialog import show_result
+    except ImportError:
+        return True
+    return show_result(
+        title, summary, headers, rows, note, _host_window(context), review
+    )
 
 
 def _status(context, message: str, timeout: int = 3000) -> None:

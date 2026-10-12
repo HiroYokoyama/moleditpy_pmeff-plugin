@@ -13,6 +13,7 @@ import math
 
 import numpy as np
 import pytest
+from rdkit import Chem
 
 import pmeff_plugin as plugin
 from pmeff_plugin import forcefield as ff
@@ -273,7 +274,7 @@ def test_optimizer_passes_electronic_effects_flag(settings_file, monkeypatch):
 
     monkeypatch.setattr("pmeff_plugin.forcefield.optimize_rdkit_mol", fake_optimize)
     callback = ctx.register_optimization_method.call_args[0][1]
-    assert callback(object()) is True
+    assert callback(Chem.MolFromSmiles("CCO")) is True
     assert seen["electronic_effects"] is True
     assert "use_morse" in seen
     assert "use_hbond" in seen

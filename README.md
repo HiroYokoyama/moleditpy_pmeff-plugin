@@ -44,6 +44,23 @@ Once installed, PMEFF registers:
 > geometry. It is not designed for high-accuracy thermochemistry. For accurate
 > energies, pair it with the ORCA or PySCF plugins.
 
+### Calculation and result dialogs
+
+Optimization, single-point energy and vibrational checks run in a background
+thread when used in MoleditPy. A **Calculating…** dialog keeps the interface
+repainting and offers **Cancel**. Optimization shows the phase, iteration,
+energy and largest force; the minimum checker shows Hessian progress.
+Calculation uses a copy of the molecule; cancellation preserves the original
+geometry. The progress dialog temporarily blocks editing to keep the document
+consistent with the submitted structure.
+
+Results stay in a resizable dialog and can be copied as a table. An optimization
+that exhausts its budget is labelled **Not converged**: choose whether to apply
+that geometry or keep the original. The minimum checker lists every mode,
+the imaginary and near-zero counts, the classification threshold and the
+residual maximum force. Values are unit-mass internal modes, **not cm⁻¹**.
+No imaginary modes alone does not confirm a minimum when residual forces remain.
+
 ## The physics
 
 For the full specification — functional forms, parameter derivations,

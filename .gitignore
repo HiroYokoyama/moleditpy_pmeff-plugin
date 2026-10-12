@@ -219,3 +219,4 @@ __marimo__/
 
 # PMEFF runtime options (user state, not source)
 pmeff_plugin/settings.json
+.pytest-tmp/

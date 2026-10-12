@@ -23,10 +23,15 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: pip install pytest pytest-cov numpy rdkit pylint
+        run: pip install pytest pytest-cov pytest-qt PyQt6 numpy rdkit pylint
 
       - name: Run tests
         run: python -m pytest tests/ -v --cov=pmeff_plugin --cov-report=term-missing
 
       - name: Lint
         run: pylint pmeff_plugin/ --fail-under=9.0
+
+      - name: Real Qt threading and dialog checks
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest tests_gui/ -v
