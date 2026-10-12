@@ -55,7 +55,7 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -1791,7 +1791,13 @@ def energy_components(coords: np.ndarray, topo: Topology) -> Dict[str, float]:
     return comp
 
 
-def hessian(coords: np.ndarray, topo: Topology, step: float = 1e-4) -> np.ndarray:
+def hessian(
+    coords: np.ndarray,
+    topo: Topology,
+    step: float = 1e-4,
+    progress_callback: Optional[Callable[[int, int], None]] = None,
+    cancel_callback: Optional[Callable[[], bool]] = None,
+) -> np.ndarray:
     """Return the (3N, 3N) Hessian at *coords* under *topo*.
 
     Central finite differences of the *analytical* gradient (2 gradient
@@ -1803,6 +1809,8 @@ def hessian(coords: np.ndarray, topo: Topology, step: float = 1e-4) -> np.ndarra
     n3 = flat.size
     hess = np.zeros((n3, n3))
     for a in range(n3):
+        if cancel_callback is not None and cancel_callback():
+            raise OptimizationCancelled("PMEFF vibrational check cancelled")
         up = flat.copy()
         up[a] += step
         down = flat.copy()
@@ -1810,11 +1818,17 @@ def hessian(coords: np.ndarray, topo: Topology, step: float = 1e-4) -> np.ndarra
         _, g_up = energy_and_gradient(up.reshape(coords.shape), topo)
         _, g_down = energy_and_gradient(down.reshape(coords.shape), topo)
         hess[a] = (g_up - g_down).ravel() / (2.0 * step)
+        if progress_callback is not None:
+            progress_callback(a + 1, n3)
     return 0.5 * (hess + hess.T)
 
 
 def vibrational_analysis(
-    coords: np.ndarray, topo: Topology, zero_tol: float = 1e-2
+    coords: np.ndarray,
+    topo: Topology,
+    zero_tol: float = 1e-2,
+    progress_callback: Optional[Callable[[int, int], None]] = None,
+    cancel_callback: Optional[Callable[[], bool]] = None,
 ) -> Dict[str, Any]:
     """Unit-mass normal-mode analysis of *coords* under *topo*.
 
@@ -1832,13 +1846,24 @@ def vibrational_analysis(
         ``num_zero`` — count of |eigenvalue| <= *zero_tol* (rigid body).
         ``is_minimum`` — True when no imaginary modes are present.
     """
-    eigvals = np.linalg.eigvalsh(hessian(coords, topo))
+    matrix = hessian(
+        coords,
+        topo,
+        progress_callback=progress_callback,
+        cancel_callback=cancel_callback,
+    )
+    if cancel_callback is not None and cancel_callback():
+        raise OptimizationCancelled("PMEFF vibrational check cancelled")
+    eigvals = np.linalg.eigvalsh(matrix)
     freqs = np.sign(eigvals) * np.sqrt(np.abs(eigvals))
     return {
         "frequencies": freqs,
         "num_imaginary": int(np.sum(eigvals < -zero_tol)),
         "num_zero": int(np.sum(np.abs(eigvals) <= zero_tol)),
         "is_minimum": bool(np.all(eigvals >= -zero_tol)),
+        "eigenvalues": eigvals,
+        "zero_tol": zero_tol,
+        "max_force": _max_force(energy_and_gradient(coords, topo)[1]),
     }
 
 
@@ -1850,6 +1875,51 @@ class OptimizeResult:
     energy: float
     steps: int
     max_force: float
+
+
+class OptimizationCancelled(Exception):
+    """Raised when a caller requests cooperative cancellation."""
+
+
+@dataclass(frozen=True)
+class OptimizationProgress:
+    """One optimizer update; steps share a budget across all phases."""
+
+    step: int
+    max_iter: int
+    energy: float
+    max_force: float
+    phase: str
+
+
+class _RunControl:
+    """Deliver progress and check cancellation without any GUI dependencies."""
+
+    def __init__(
+        self,
+        max_iter: int,
+        progress_callback: Optional[Callable[[OptimizationProgress], None]],
+        cancel_callback: Optional[Callable[[], bool]],
+    ) -> None:
+        self.max_iter = max_iter
+        self.progress_callback = progress_callback
+        self.cancel_callback = cancel_callback
+        self.offset = 0
+
+    def check(self) -> None:
+        """Stop before the next expensive operation if cancellation was requested."""
+        if self.cancel_callback is not None and self.cancel_callback():
+            raise OptimizationCancelled("PMEFF optimization cancelled")
+
+    def report(self, step: int, energy: float, grad: np.ndarray, phase: str) -> None:
+        """Report absolute iteration counts across FIRE and L-BFGS."""
+        self.check()
+        if self.progress_callback is not None:
+            self.progress_callback(
+                OptimizationProgress(
+                    self.offset + step, self.max_iter, energy, _max_force(grad), phase
+                )
+            )
 
 
 # FIRE hands over to L-BFGS once the largest per-atom force drops below this
@@ -1903,6 +1973,7 @@ def _fire_phase(
     budget: int,
     stop_force: float,
     max_step: float,
+    control: Optional[_RunControl] = None,
 ) -> Tuple[np.ndarray, float, np.ndarray, int]:
     """FIRE 2.0 iterations until max force < *stop_force* or budget is spent.
 
@@ -1933,6 +2004,8 @@ def _fire_phase(
 
     steps = 0
     while steps < budget:
+        if control is not None:
+            control.check()
         if _max_force(grad) < stop_force:
             break
         steps += 1
@@ -1968,6 +2041,9 @@ def _fire_phase(
         refresh(x)
         energy, grad = energy_and_gradient(x, topo)
 
+        if control is not None:
+            control.report(steps, energy, grad, "FIRE")
+
     return x, energy, grad, steps
 
 
@@ -1980,6 +2056,7 @@ def _lbfgs_phase(
     budget: int,
     f_tol: float,
     max_step: float,
+    control: Optional[_RunControl] = None,
 ) -> Tuple[np.ndarray, float, np.ndarray, int]:
     """L-BFGS iterations until max force < *f_tol*, stall, or spent budget.
 
@@ -1996,6 +2073,8 @@ def _lbfgs_phase(
 
     steps = 0
     while steps < budget:
+        if control is not None:
+            control.check()
         if _max_force(grad) < f_tol:
             break
         steps += 1
@@ -2040,6 +2119,8 @@ def _lbfgs_phase(
         # Armijo backtracking line search.
         t = 1.0
         for _ in range(_LBFGS_MAX_BACKTRACKS):
+            if control is not None:
+                control.check()
             x_new = x + t * d
             e_new, g_new = energy_and_gradient(x_new, topo)
             if e_new <= energy + _LBFGS_ARMIJO * t * g_dot_d:
@@ -2069,6 +2150,9 @@ def _lbfgs_phase(
             rho.clear()
             energy, grad = energy_and_gradient(x, topo)
 
+        if control is not None:
+            control.report(steps, energy, grad, "L-BFGS")
+
     return x, energy, grad, steps
 
 
@@ -2078,6 +2162,8 @@ def optimize(
     max_iter: int = 500,
     f_tol: float = 1e-3,
     max_step: float = 0.20,
+    progress_callback: Optional[Callable[[OptimizationProgress], None]] = None,
+    cancel_callback: Optional[Callable[[], bool]] = None,
 ) -> Tuple[np.ndarray, OptimizeResult]:
     """Minimize the PMEFF energy of *coords*: FIRE 2.0, then L-BFGS.
 
@@ -2099,13 +2185,19 @@ def optimize(
         max_iter: Total iteration budget across all phases.
         f_tol: Convergence threshold on the largest per-atom force magnitude.
         max_step: Maximum distance (Angstrom) any atom may move in one step.
+        progress_callback: Receives immutable progress snapshots on the calling thread.
+        cancel_callback: Return True to raise OptimizationCancelled. Checked at
+            iteration boundaries and inside the L-BFGS line search.
 
     Returns:
         (optimized_coords, OptimizeResult).
     """
     x = np.array(coords, dtype=float)
+    control = _RunControl(max_iter, progress_callback, cancel_callback)
+    control.check()
     refresh = _RefreshTracker(topo, x)
     energy, grad = energy_and_gradient(x, topo)
+    control.report(0, energy, grad, "FIRE")
 
     steps = 0
     budget = max_iter
@@ -2118,23 +2210,28 @@ def optimize(
         budget,
         max(_LBFGS_CROSSOVER, f_tol),
         max_step,
+        control,
     )
     steps += used
     budget -= used
+    control.offset = steps
     if budget > 0 and _max_force(grad) >= f_tol:
         x, energy, grad, used = _lbfgs_phase(
-            x, topo, refresh, energy, grad, budget, f_tol, max_step
+            x, topo, refresh, energy, grad, budget, f_tol, max_step, control
         )
         steps += used
         budget -= used
+        control.offset = steps
     if budget > 0 and _max_force(grad) >= f_tol:
         # L-BFGS stalled: finish with FIRE, now targeting f_tol directly.
         x, energy, grad, used = _fire_phase(
-            x, topo, refresh, energy, grad, budget, f_tol, max_step
+            x, topo, refresh, energy, grad, budget, f_tol, max_step, control
         )
         steps += used
 
     max_force = _max_force(grad)
+    control.offset = 0
+    control.report(steps, energy, grad, "Done")
     return x, OptimizeResult(max_force < f_tol, energy, steps, max_force)
 
 
@@ -2284,6 +2381,8 @@ def check_minimum(
     use_hbond: bool = False,
     use_polar_contraction: bool = True,
     geometry_overrides: Optional[Dict[int, str]] = None,
+    progress_callback: Optional[Callable[[int, int], None]] = None,
+    cancel_callback: Optional[Callable[[], bool]] = None,
 ) -> Optional[Dict[str, Any]]:
     """Run a vibrational analysis on *mol*'s current conformer.
 
@@ -2304,7 +2403,12 @@ def check_minimum(
         use_polar_contraction=use_polar_contraction,
         geometry_overrides=geometry_overrides,
     )
-    return vibrational_analysis(coords, topo)
+    return vibrational_analysis(
+        coords,
+        topo,
+        progress_callback=progress_callback,
+        cancel_callback=cancel_callback,
+    )
 
 
 def optimize_rdkit_mol(
@@ -2317,6 +2421,8 @@ def optimize_rdkit_mol(
     use_hbond: bool = False,
     use_polar_contraction: bool = True,
     geometry_overrides: Optional[Dict[int, str]] = None,
+    progress_callback: Optional[Callable[[OptimizationProgress], None]] = None,
+    cancel_callback: Optional[Callable[[], bool]] = None,
 ) -> Tuple[bool, Optional[OptimizeResult]]:
     """Optimize an RDKit molecule's conformer in place with PMEFF.
 
@@ -2326,6 +2432,9 @@ def optimize_rdkit_mol(
     """
     if mol is None or mol.GetNumAtoms() < 2:
         return True, None
+
+    if cancel_callback is not None and cancel_callback():
+        raise OptimizationCancelled("PMEFF optimization cancelled")
 
     coords = _conformer_coords(mol)
     if coords is None:
@@ -2341,7 +2450,14 @@ def optimize_rdkit_mol(
         use_polar_contraction=use_polar_contraction,
         geometry_overrides=geometry_overrides,
     )
-    new_coords, result = optimize(coords, topo, max_iter=max_iter, f_tol=f_tol)
+    new_coords, result = optimize(
+        coords,
+        topo,
+        max_iter=max_iter,
+        f_tol=f_tol,
+        progress_callback=progress_callback,
+        cancel_callback=cancel_callback,
+    )
 
     if not np.all(np.isfinite(new_coords)):
         logger.error("PMEFF: optimization produced non-finite coordinates.")

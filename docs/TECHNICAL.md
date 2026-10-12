@@ -380,6 +380,14 @@ Two numerically motivated choices deserve emphasis:
 `OptimizeResult` reports `converged`, final `energy`, `steps` (summed over
 phases; line-search evaluations are not counted), and `max_force`.
 
+`optimize` and `optimize_rdkit_mol` optionally accept `progress_callback`
+and `cancel_callback`. Progress snapshots contain `step`, `max_iter`,
+`energy`, `max_force` and `phase`; step counts continue across both phases.
+Returning `True` from the cancellation callback raises `OptimizationCancelled`
+before another iteration or line-search evaluation. The RDKit boundary writes
+coordinates only after completion, so cancellation preserves the input conformer.
+Callbacks run on the caller's thread; GUI callers must deliver them via Qt signals.
+
 ## Vibrational analysis
 
 `hessian(coords, topo)` assembles the (3N, 3N) Hessian by central finite
@@ -402,6 +410,12 @@ softest real modes (torsions, O(1)) and well above the rigid-mode residuals
 of a tightly converged geometry.
 
 ## RDKit boundary and public API
+
+Vibrational results also include the raw `eigenvalues`, `zero_tol` and residual
+`max_force`. Positive curvature with a substantial residual force does not
+establish a stationary minimum. Hessian and vibrational calls accept progress
+callbacks `(completed_coordinates, total_coordinates)` and cooperative
+cancellation between finite-difference columns.
 
 Only five functions touch RDKit, and `Point3D` is imported lazily so the
 core stays importable without it:
