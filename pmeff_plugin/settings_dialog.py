@@ -36,6 +36,7 @@ def open_settings_dialog(
             QVBoxLayout,
             QCheckBox,
             QPushButton,
+            QSpinBox,
         )
         from PyQt6.QtCore import Qt  # type: ignore[import]
     except ImportError:
@@ -56,6 +57,15 @@ def open_settings_dialog(
     intro.setWordWrap(True)
     intro.setContentsMargins(0, 0, 0, 8)
     layout.addWidget(intro)
+
+    layout.addWidget(QLabel("Maximum optimization steps"))
+    iterations = QSpinBox()
+    iterations.setRange(1, 100000)
+    iterations.setValue(int(current.get("max_iterations", 1000)))
+    iterations.setToolTip(
+        "Increase the budget for difficult structures. Cancel remains available."
+    )
+    layout.addWidget(iterations)
 
     checks: dict[str, QCheckBox] = {}
     option_defaults: dict[str, bool] = {}
@@ -164,6 +174,7 @@ def open_settings_dialog(
     def _restore_defaults() -> None:
         for key, cb in checks.items():
             cb.setChecked(bool(reset_to.get(key, True)))
+        iterations.setValue(int(reset_to.get("max_iterations", 1000)))
 
     restore_btn = buttons.button(QDialogButtonBox.StandardButton.RestoreDefaults)
     restore_btn.clicked.connect(_restore_defaults)
@@ -171,6 +182,8 @@ def open_settings_dialog(
 
     accepted = dlg.exec() == QDialog.DialogCode.Accepted
     result = {key: cb.isChecked() for key, cb in checks.items()} if accepted else None
+    if result is not None:
+        result["max_iterations"] = iterations.value()
     # Now that the modal dialog is closed, open the (modeless) override window.
     if pending["geometry"] and on_open_geometry is not None:
         on_open_geometry()

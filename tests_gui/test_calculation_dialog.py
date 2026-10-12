@@ -129,7 +129,7 @@ def test_unconverged_geometry_requires_review(qapp, monkeypatch):
     ctx = SimpleNamespace(
         get_main_window=lambda: None, show_status_message=lambda *_args: None
     )
-    monkeypatch.setattr(plugin, "_MAX_ITER", 1)
+    monkeypatch.setattr(plugin, "_iteration_budget", lambda: 1)
 
     def reject_review():
         for widget in QApplication.topLevelWidgets():

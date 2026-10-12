@@ -15,6 +15,9 @@
 
 ### Added
 
+- Configurable maximum optimization steps in PMEFF Settings (default 1,000),
+  and progress/cancellation callbacks in the standalone `pmeff` convenience API.
+
 - PMEFF optimization, single-point energy and vibrational checks run on a
   worker thread with a calculating/cancel dialog. Calculations use molecular
   snapshots; the GUI thread applies accepted optimization results.

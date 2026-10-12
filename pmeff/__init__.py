@@ -30,12 +30,14 @@ re-exported for advanced use.
 
 from __future__ import annotations
 
-from typing import Any, List, Optional, Sequence, Tuple
+from typing import Any, Callable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
 from ._version import __version__
 from .forcefield import (
+    OptimizationCancelled,
+    OptimizationProgress,
     OptimizeResult,
     Topology,
     bond_rest_length,
@@ -52,6 +54,8 @@ __all__ = [
     "optimize_mol",
     "optimize_coords",
     "OptimizeResult",
+    "OptimizationProgress",
+    "OptimizationCancelled",
     "Topology",
     "build_topology",
     "energy_and_gradient",
@@ -73,6 +77,8 @@ def optimize_mol(
     use_dispersion: bool = False,
     use_polar_contraction: bool = True,
     geometry_overrides: Optional[dict] = None,
+    progress_callback: Optional[Callable[[OptimizationProgress], None]] = None,
+    cancel_callback: Optional[Callable[[], bool]] = None,
 ) -> Tuple[Any, Optional[OptimizeResult]]:
     """Relax an RDKit ``Mol``'s 3D conformer in place with PMEFF.
 
@@ -107,6 +113,8 @@ def optimize_mol(
         use_dispersion=use_dispersion,
         use_polar_contraction=use_polar_contraction,
         geometry_overrides=geometry_overrides,
+        progress_callback=progress_callback,
+        cancel_callback=cancel_callback,
     )
     if not success:
         raise ValueError("PMEFF: molecule has no 3D conformer to optimize")
@@ -127,6 +135,8 @@ def optimize_coords(
     use_dispersion: bool = False,
     use_polar_contraction: bool = True,
     geometry_overrides: Optional[dict] = None,
+    progress_callback: Optional[Callable[[OptimizationProgress], None]] = None,
+    cancel_callback: Optional[Callable[[], bool]] = None,
 ) -> Tuple["np.ndarray", OptimizeResult]:
     """Relax a molecule described by plain arrays — no RDKit required.
 
@@ -160,4 +170,11 @@ def optimize_coords(
         use_polar_contraction=use_polar_contraction,
         geometry_overrides=geometry_overrides,
     )
-    return optimize(coords, topo, max_iter=max_iter, f_tol=f_tol)
+    return optimize(
+        coords,
+        topo,
+        max_iter=max_iter,
+        f_tol=f_tol,
+        progress_callback=progress_callback,
+        cancel_callback=cancel_callback,
+    )

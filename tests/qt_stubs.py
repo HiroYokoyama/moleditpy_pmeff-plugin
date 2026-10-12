@@ -182,6 +182,25 @@ class QCheckBox(_QObjectBase):
         return self._checked
 
 
+class QSpinBox(_QObjectBase):
+    def __init__(self, parent=None):
+        super().__init__()
+        self._value = 0
+        self._minimum, self._maximum = 0, 99
+
+    def setRange(self, minimum, maximum):
+        self._minimum, self._maximum = minimum, maximum
+
+    def setValue(self, value):
+        self._value = max(self._minimum, min(self._maximum, value))
+
+    def value(self):
+        return self._value
+
+    def setToolTip(self, *_args):
+        pass
+
+
 class QPushButton(_QObjectBase):
     def __init__(self, text="", parent=None):
         super().__init__()
@@ -333,7 +352,9 @@ class _FakeModel:
         return _FakeIndex(row, col)
 
     def item(self, i):
-        return self._table._combo_items[i] if i < len(self._table._combo_items) else None
+        return (
+            self._table._combo_items[i] if i < len(self._table._combo_items) else None
+        )
 
 
 class _HeaderView:
@@ -558,6 +579,7 @@ def install_qt_stubs():
     qt_widgets.QHBoxLayout = QHBoxLayout
     qt_widgets.QLabel = QLabel
     qt_widgets.QCheckBox = QCheckBox
+    qt_widgets.QSpinBox = QSpinBox
     qt_widgets.QPushButton = QPushButton
     qt_widgets.QTableWidget = QTableWidget
     qt_widgets.QTableWidgetItem = _FakeTableWidgetItem

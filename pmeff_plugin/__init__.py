@@ -49,6 +49,7 @@ _MAX_ITER = 1000
 # travel with the installed plugin and need no host settings API.
 _SETTINGS_FILE = Path(__file__).resolve().parent / "settings.json"
 _DEFAULT_SETTINGS = {
+    "max_iterations": _MAX_ITER,
     # QEq charges + shielded Coulomb + square-planar/octahedral metal targets.
     "electronic_effects": True,
     # Morse bond potential replaces harmonic; no overhead, on by default.
@@ -127,6 +128,17 @@ def _settings_kwargs() -> dict:
         "use_dispersion": bool(s.get("dispersion", False)),
         "use_polar_contraction": bool(s.get("polar_contraction", True)),
     }
+
+
+def _iteration_budget() -> int:
+    """Bound the persisted iteration setting; malformed settings use the default."""
+    try:
+        return max(
+            1, min(100000, int(load_settings().get("max_iterations", _MAX_ITER)))
+        )
+    except (TypeError, ValueError, OverflowError):
+        logger.warning("PMEFF: invalid maximum iterations; using %d.", _MAX_ITER)
+        return _MAX_ITER
 
 
 def initialize(context):
@@ -289,6 +301,7 @@ def _optimize(mol, context) -> bool:
 
     kwargs = _settings_kwargs()
     overrides = _overrides_kwarg()
+    max_iter = _iteration_budget()
     try:
         working, output = _calculate(
             context,
@@ -296,7 +309,7 @@ def _optimize(mol, context) -> bool:
             mol,
             lambda copy, report, cancel: optimize_rdkit_mol(
                 copy,
-                max_iter=_MAX_ITER,
+                max_iter=max_iter,
                 geometry_overrides=overrides,
                 progress_callback=report,
                 cancel_callback=cancel,

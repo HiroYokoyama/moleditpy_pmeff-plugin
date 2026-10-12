@@ -58,9 +58,25 @@ def test_public_api_is_exported():
         "bond_rest_length",
         "Topology",
         "OptimizeResult",
+        "OptimizationProgress",
+        "OptimizationCancelled",
     ):
         assert hasattr(pmeff, name), f"pmeff.{name} missing from public API"
         assert name in pmeff.__all__
+
+
+def test_public_optimizer_progress_and_cancellation():
+    coords = np.array([[0, 0, 0], [1.8, 0, 0]], dtype=float)
+    updates = []
+    _out, result = pmeff.optimize_coords(
+        [6, 6], [(0, 1)], coords, progress_callback=updates.append
+    )
+    assert isinstance(updates[-1], pmeff.OptimizationProgress)
+    assert updates[-1].step == result.steps
+    before = coords.copy()
+    with pytest.raises(pmeff.OptimizationCancelled):
+        pmeff.optimize_coords([6, 6], [(0, 1)], coords, cancel_callback=lambda: True)
+    np.testing.assert_array_equal(coords, before)
 
 
 # --- Pure-NumPy path (no RDKit) ---------------------------------------------

@@ -61,6 +61,16 @@ the imaginary and near-zero counts, the classification threshold and the
 residual maximum force. Values are unit-mass internal modes, **not cm⁻¹**.
 No imaginary modes alone does not confirm a minimum when residual forces remain.
 
+The iteration budget is configurable under **PMEFF Settings → Maximum
+optimization steps** (default 1,000). Difficult structures may require more
+steps; this changes the optimization budget without changing force-field parameters.
+
+Standalone `pmeff.optimize_mol` and `pmeff.optimize_coords` accept
+`progress_callback` and `cancel_callback` too, without depending on Qt.
+The progress callback receives an `OptimizationProgress` snapshot. A cancellation
+callback returning `True` raises `pmeff.OptimizationCancelled` and preserves
+the input coordinates.
+
 ## The physics
 
 For the full specification — functional forms, parameter derivations,

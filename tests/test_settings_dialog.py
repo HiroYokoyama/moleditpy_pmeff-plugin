@@ -68,7 +68,7 @@ def test_accept_returns_updated_checkbox_states(settings_dialog_mod):
         "polar_contraction": True,
     }
     result = settings_dialog_mod.open_settings_dialog(None, current)
-    assert result == current
+    assert result == {**current, "max_iterations": 1000}
 
 
 def test_reject_returns_none(settings_dialog_mod):
@@ -78,6 +78,17 @@ def test_reject_returns_none(settings_dialog_mod):
     qt_stubs.set_exec_hook(hook)
     result = settings_dialog_mod.open_settings_dialog(None, {})
     assert result is None
+
+
+def test_iteration_budget_can_be_changed(settings_dialog_mod):
+    def hook(dlg):
+        spin = qt_stubs.find_widget(dlg, qt_stubs.QSpinBox)
+        spin.setValue(5000)
+        dlg.accept()
+
+    qt_stubs.set_exec_hook(hook)
+    result = settings_dialog_mod.open_settings_dialog(None, {"max_iterations": 1000})
+    assert result["max_iterations"] == 5000
 
 
 def test_cancel_button_signal_returns_none(settings_dialog_mod):
@@ -108,6 +119,7 @@ def test_missing_current_keys_fall_back_to_option_defaults(settings_dialog_mod):
     qt_stubs.set_exec_hook(hook)
     result = settings_dialog_mod.open_settings_dialog(None, {})
     assert result == {
+        "max_iterations": 1000,
         "electronic_effects": True,
         "morse_bonds": True,
         "hbond": True,
@@ -137,6 +149,7 @@ def test_restore_defaults_button_resets_checkboxes(settings_dialog_mod):
     }
     result = settings_dialog_mod.open_settings_dialog(None, current)
     assert result == {
+        "max_iterations": 1000,
         "electronic_effects": True,
         "morse_bonds": True,
         "hbond": True,
@@ -168,7 +181,9 @@ def test_restore_defaults_uses_caller_supplied_defaults(settings_dialog_mod):
 
 def test_no_geometry_button_when_callback_omitted(settings_dialog_mod):
     def hook(dlg):
-        btn = qt_stubs.find_widget(dlg, qt_stubs.QPushButton, "Metal Geometry Override…")
+        btn = qt_stubs.find_widget(
+            dlg, qt_stubs.QPushButton, "Metal Geometry Override…"
+        )
         assert btn is None
         dlg.accept()
 
