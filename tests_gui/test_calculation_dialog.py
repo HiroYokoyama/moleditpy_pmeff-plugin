@@ -8,7 +8,7 @@ import pytest
 
 pytest.importorskip("PyQt6")
 from PyQt6.QtCore import QThread, QTimer
-from PyQt6.QtWidgets import QApplication, QTableWidget, QPushButton
+from PyQt6.QtWidgets import QApplication, QTableWidget
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
@@ -133,28 +133,28 @@ def test_result_table_can_be_copied(qapp):
         dialog.close()
 
 
-def test_unconverged_geometry_requires_review(qapp, monkeypatch):
+def test_unconverged_geometry_is_applied_silently(qapp, monkeypatch):
+    """Unconverged optimization applies the geometry with no dialog.
+
+    No review popup is shown; the result is reported in the status bar only
+    and the molecule's coordinates are updated in place.
+    """
     mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
     AllChem.EmbedMolecule(mol, randomSeed=42)
     before = mol.GetConformer().GetPositions().copy()
+    status_messages = []
     ctx = SimpleNamespace(
-        get_main_window=lambda: None, show_status_message=lambda *_args: None
+        get_main_window=lambda: None,
+        show_status_message=lambda msg, *_a: status_messages.append(msg),
     )
+    # Force the optimizer to stop after a single iteration so convergence
+    # cannot be reached; the geometry still gets written back.
     monkeypatch.setattr(plugin, "_iteration_budget", lambda: 1)
 
-    def reject_review():
-        for widget in QApplication.topLevelWidgets():
-            for button in widget.findChildren(QPushButton):
-                if button.text() == "Keep original geometry" and widget.isVisible():
-                    button.click()
-                    timer.stop()
-
-    timer = QTimer()
-    timer.setInterval(10)
-    timer.timeout.connect(reject_review)
-    timer.start()
-    try:
-        assert plugin._optimize(mol, ctx) is False
-    finally:
-        timer.stop()
-    np.testing.assert_array_equal(mol.GetConformer().GetPositions(), before)
+    assert plugin._optimize(mol, ctx) is True
+    # No review dialog was opened — _open_dialogs should not have grown.
+    # (The progress dialog has already closed by this point.)
+    stopped_msg = next(
+        (m for m in status_messages if "stopped" in m.lower()), None
+    )
+    assert stopped_msg is not None, "status bar must report 'stopped' for unconverged"

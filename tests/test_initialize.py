@@ -249,7 +249,7 @@ def test_result_dialog_shown_only_by_minimum_check(monkeypatch):
     ctx.current_molecule = mol
     notes = []
 
-    def display(_context, title, summary, headers, rows, note="", **_kwargs):
+    def display(_context, title, summary, headers, rows, note=""):
         notes.append((title, note))
         return True
 

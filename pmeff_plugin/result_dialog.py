@@ -94,7 +94,6 @@ def show_result(
     rows: Sequence[Sequence[str]],
     note: str = "",
     parent: Any = None,
-    review: bool = False,
 ) -> bool:
     """Show a compact outcome with an optional full-data details window."""
     if QApplication.instance() is None:
@@ -123,23 +122,8 @@ def show_result(
         details.clicked.connect(
             lambda: _show_data(title, summary, headers, rows, note, dialog)
         )
-    if review:
-        apply_button = buttons.addButton(
-            "Apply unconverged geometry", QDialogButtonBox.ButtonRole.AcceptRole
-        )
-        apply_button.setAutoDefault(False)
-        keep = buttons.addButton(
-            "Keep original geometry", QDialogButtonBox.ButtonRole.RejectRole
-        )
-        keep.setDefault(True)
-    else:
-        buttons.setStandardButtons(QDialogButtonBox.StandardButton.Close)
-    buttons.accepted.connect(dialog.accept)
+    buttons.setStandardButtons(QDialogButtonBox.StandardButton.Close)
     buttons.rejected.connect(dialog.reject)
     layout.addWidget(buttons)
-    if review:
-        accepted = dialog.exec() == QDialog.DialogCode.Accepted
-        dialog.deleteLater()
-        return accepted
     _show_modeless(dialog)
     return True

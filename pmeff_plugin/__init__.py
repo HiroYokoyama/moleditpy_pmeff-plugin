@@ -27,7 +27,7 @@ import tempfile
 from pathlib import Path
 
 PLUGIN_NAME = "PMEFF Plugin"
-PLUGIN_VERSION = "1.5.1"
+PLUGIN_VERSION = "1.5.2"
 # Must equal the GitHub username (the moleditpy registry enforces this).
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
@@ -333,27 +333,7 @@ def _optimize(mol, context) -> bool:
         _status(context, "PMEFF: no 3D geometry to optimize.", 4000)
         return False
 
-    if result is not None and not result.converged:
-        # Unconverged: ask the user whether to apply the distorted geometry.
-        accepted = _display_result(
-            context,
-            "PMEFF Optimization Result",
-            f"Not converged: iteration limit reached\n"
-            f"Steps: {result.steps}   Maximum force: {result.max_force:.6f}",
-            ["Property", "Value"],
-            [
-                ["Iterations", str(result.steps)],
-                ["Energy", f"{result.energy:.6f}"],
-                ["Maximum force", f"{result.max_force:.6f}"],
-            ],
-            _SCOPE_NOTE
-            + "PMEFF uses internal force-field units. An unconverged geometry may "
-            "remain distorted; increase the iteration budget or improve the starting geometry.",
-            review=True,
-        )
-        if not accepted:
-            _status(context, "PMEFF: original geometry preserved.", 5000)
-            return False
+    # Unconverged: geometry is applied regardless; status bar reports the outcome.
 
     # Only the GUI thread writes the host's molecule, after worker completion.
     from rdkit import Chem
@@ -549,15 +529,13 @@ def _calculate(context, title, mol, operation):
     return working, output
 
 
-def _display_result(context, title, summary, headers, rows, note="", review=False):
+def _display_result(context, title, summary, headers, rows, note=""):
     """Keep headless use working while showing persistent GUI result tables."""
     try:
         from .result_dialog import show_result
     except ImportError:
         return True
-    return show_result(
-        title, summary, headers, rows, note, _host_window(context), review
-    )
+    return show_result(title, summary, headers, rows, note, _host_window(context))
 
 
 def _status(context, message: str, timeout: int = 3000) -> None:
