@@ -235,7 +235,14 @@ def test_optimizer_callback_survives_engine_exception(monkeypatch):
     assert callback(_embed("CCO")) is False
 
 
-def test_result_dialogs_explain_dft_and_spectral_limitations(monkeypatch):
+def test_result_dialog_shown_only_by_minimum_check(monkeypatch):
+    """Result dialogs are shown exclusively by _check_minimum.
+
+    _optimize (when converged) and _show_energy write to the status bar only;
+    no popup dialog should appear.  _check_minimum still opens its full
+    vibrational table and must carry the DFT scope note and the spectral-
+    limitation disclaimer.
+    """
     plugin._reset_project_state()
     ctx = make_context()
     mol = _embed("CO")
@@ -247,13 +254,20 @@ def test_result_dialogs_explain_dft_and_spectral_limitations(monkeypatch):
         return True
 
     monkeypatch.setattr(plugin, "_display_result", display)
+
+    # Converged optimization must NOT open a result dialog.
     assert plugin._optimize(mol, ctx)
+    assert len(notes) == 0, "converged _optimize must not open a result dialog"
+
+    # Single-point energy must NOT open a result dialog.
     plugin._show_energy(ctx)
+    assert len(notes) == 0, "_show_energy must not open a result dialog"
+
+    # Stationary-point validation MUST open a result dialog with both notes.
     plugin._check_minimum(ctx)
-    assert len(notes) == 3
-    assert all(
-        "initial structure preparation before DFT" in note for _title, note in notes
-    )
-    assert all("not quantitatively accurate" in note for _title, note in notes)
-    assert "not physical wavenumbers" in notes[-1][1]
-    assert "IR or Raman spectrum" in notes[-1][1]
+    assert len(notes) == 1, "_check_minimum must open exactly one result dialog"
+    _title, note = notes[0]
+    assert "initial structure preparation before DFT" in note
+    assert "not quantitatively accurate" in note
+    assert "not physical wavenumbers" in note
+    assert "IR or Raman spectrum" in note

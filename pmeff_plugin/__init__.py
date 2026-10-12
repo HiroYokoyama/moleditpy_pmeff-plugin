@@ -27,7 +27,7 @@ import tempfile
 from pathlib import Path
 
 PLUGIN_NAME = "PMEFF Plugin"
-PLUGIN_VERSION = "1.5.0"
+PLUGIN_VERSION = "1.5.1"
 # Must equal the GitHub username (the moleditpy registry enforces this).
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
@@ -327,26 +327,19 @@ def _optimize(mol, context) -> bool:
     except Exception as exc:  # pragma: no cover - defensive GUI guard
         logger.exception("PMEFF optimization failed")
         _status(context, f"PMEFF optimization failed: {exc}", 5000)
-        _display_result(context, "PMEFF Optimization Failed", str(exc), [], [])
         return False
 
     if not success:
         _status(context, "PMEFF: no 3D geometry to optimize.", 4000)
-        _display_result(
-            context, "PMEFF Optimization", "No 3D geometry to optimize.", [], []
-        )
         return False
 
-    if result is not None:
-        state = (
-            "Converged"
-            if result.converged
-            else "Not converged: iteration limit reached"
-        )
+    if result is not None and not result.converged:
+        # Unconverged: ask the user whether to apply the distorted geometry.
         accepted = _display_result(
             context,
             "PMEFF Optimization Result",
-            f"{state}\nSteps: {result.steps}   Maximum force: {result.max_force:.6f}",
+            f"Not converged: iteration limit reached\n"
+            f"Steps: {result.steps}   Maximum force: {result.max_force:.6f}",
             ["Property", "Value"],
             [
                 ["Iterations", str(result.steps)],
@@ -356,7 +349,7 @@ def _optimize(mol, context) -> bool:
             _SCOPE_NOTE
             + "PMEFF uses internal force-field units. An unconverged geometry may "
             "remain distorted; increase the iteration budget or improve the starting geometry.",
-            review=not result.converged,
+            review=True,
         )
         if not accepted:
             _status(context, "PMEFF: original geometry preserved.", 5000)
@@ -403,7 +396,6 @@ def _show_energy(context) -> None:
     mol = context.current_molecule
     if mol is None:
         _status(context, "PMEFF: no molecule loaded.", 3000)
-        _display_result(context, "PMEFF Energy", "No molecule loaded.", [], [])
         return
 
     try:
@@ -422,12 +414,10 @@ def _show_energy(context) -> None:
     except Exception as exc:  # pragma: no cover - defensive GUI guard
         logger.exception("PMEFF energy evaluation failed")
         _status(context, f"PMEFF energy failed: {exc}", 5000)
-        _display_result(context, "PMEFF Energy Failed", str(exc), [], [])
         return
 
     if comp is None:
         _status(context, "PMEFF: molecule has no 3D coordinates.", 4000)
-        _display_result(context, "PMEFF Energy", "No 3D coordinates available.", [], [])
         return
 
     base = (
@@ -445,27 +435,6 @@ def _show_energy(context) -> None:
         f"PMEFF single-point energy: {comp['total']:.4f} ({base}{extras})",
         8000,
     )
-    _display_result(
-        context,
-        "PMEFF Single-Point Energy",
-        f"Total energy: {comp['total']:.6f}",
-        ["Energy term", "Energy"],
-        [
-            [k, f"{comp[k]:.6f}"]
-            for k in (
-                "bond",
-                "angle",
-                "torsion",
-                "oop",
-                "vdw",
-                "elec",
-                "hbond",
-                "disp",
-                "total",
-            )
-        ],
-        _SCOPE_NOTE + "Energy values are in PMEFF internal units.",
-    )
 
 
 def _check_minimum(context) -> None:
@@ -475,7 +444,6 @@ def _check_minimum(context) -> None:
     mol = context.current_molecule
     if mol is None:
         _status(context, "PMEFF: no molecule loaded.", 3000)
-        _display_result(context, "PMEFF Minimum Check", "No molecule loaded.", [], [])
         return
 
     try:
@@ -498,14 +466,10 @@ def _check_minimum(context) -> None:
     except Exception as exc:  # pragma: no cover - defensive GUI guard
         logger.exception("PMEFF vibrational analysis failed")
         _status(context, f"PMEFF vibrational analysis failed: {exc}", 5000)
-        _display_result(context, "PMEFF Vibrational Check Failed", str(exc), [], [])
         return
 
     if result is None:
         _status(context, "PMEFF: molecule has no 3D coordinates.", 4000)
-        _display_result(
-            context, "PMEFF Minimum Check", "No 3D coordinates available.", [], []
-        )
         return
 
     stationary = result["max_force"] < 1e-3
