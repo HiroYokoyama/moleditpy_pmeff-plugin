@@ -1072,9 +1072,10 @@ def refresh_qeq_charges(topo: Topology, coords: np.ndarray) -> None:
 
     The QEq solution depends on the geometry, so charges baked into the pair
     list at build time describe a geometry that no longer exists after a
-    large relaxation. Because the charges *minimize* the QEq energy, the
-    fixed-charge gradient stays exact at the re-solved charges (envelope
-    theorem) — refreshing costs one linear solve and adds no gradient terms.
+    large relaxation. Forces between refreshes use the current fixed charges.
+    This is an approximate charge-relaxation scheme: the excluded/scaled
+    force-field Coulomb pairs differ from the full QEq solve matrix, so the
+    envelope theorem does not establish an exact relaxed-charge gradient.
     No-op unless the topology carries a dynamic-charge total
     (:attr:`Topology.qeq_total_charge`).
     """
@@ -1718,11 +1719,12 @@ def energy_and_gradient(
         np.add.at(grad, elec_ij[:, 0], g)
         np.add.at(grad, elec_ij[:, 1], -g)
 
-    # --- H-bond: eps · [(R₀/r)^12 − 2(R₀/r)^6] · cos²(θ_{DHA}) ---
-    # Minimum at r = R₀ (H···A distance), θ = 0° (linear D−H···A).
+    # --- H-bond: eps · [(R₀/r)^12 − 2(R₀/r)^6] · min(cos(θ_{DHA}), 0)² ---
+    # Minimum at r = R₀ (H···A distance), θ = 180° (linear D−H···A).
     # The LJ-12-6 radial profile is repulsive below R₀ and attractive above,
     # with the correct r⁻⁶ long-range tail. The cos² angular factor suppresses
-    # bent H-bonds smoothly to zero. Donors and acceptors: N, O, F, S.
+    # bent H-bonds smoothly to zero at 90°, with no reverse-facing attraction.
+    # Donors and acceptors: N, O, F, S.
     hbond_dha = arrays["hbond_dha"]
     if len(hbond_dha):
         dd = hbond_dha[:, 0]  # donor D
@@ -1737,7 +1739,8 @@ def energy_and_gradient(
         e_radial = r12_hb - 2.0 * r6_hb
         # D-H-A angle: D is atom-i, H is vertex (j), A is atom-k.
         _theta_dha, cos_t, dcos_di, dcos_dk = _bend_terms(coords, dd, hh, aa)
-        cos2 = cos_t * cos_t
+        donor_facing_cos = np.minimum(cos_t, 0.0)
+        cos2 = donor_facing_cos * donor_facing_cos
         energy += _record("hbond", float(np.sum(eps_hb * e_radial * cos2)))
         # Radial gradient (H and A move along the H-A vector).
         de_dr = eps_hb * cos2 * 12.0 * (r6_hb - r12_hb) / r_HA
@@ -1745,7 +1748,7 @@ def energy_and_gradient(
         np.add.at(grad, hh, g_r)
         np.add.at(grad, aa, -g_r)
         # Angular gradient (D, H, A all feel the cos² dependence).
-        de_cos = (eps_hb * e_radial * 2.0 * cos_t)[:, None]
+        de_cos = (eps_hb * e_radial * 2.0 * donor_facing_cos)[:, None]
         g_D = de_cos * dcos_di
         g_A = de_cos * dcos_dk
         np.add.at(grad, dd, g_D)
@@ -2223,6 +2226,31 @@ def optimize(
             x, topo, refresh, energy, grad, budget, f_tol, max_step, control
         )
         steps += used
+
+    # A skin-based QEq refresh can leave stale charges at apparent convergence.
+    # Re-solve at the actual final geometry and polish with the remaining budget
+    # until the reported residual agrees with a fresh single-point evaluation.
+    while topo.qeq_total_charge is not None:
+        control.check()
+        refresh_qeq_charges(topo, x)
+        energy, grad = energy_and_gradient(x, topo)
+        control.offset = 0
+        control.report(steps, energy, grad, "Charge refresh")
+        budget = max_iter - steps
+        if _max_force(grad) < f_tol or budget <= 0:
+            break
+        control.offset = steps
+        x, energy, grad, used = _lbfgs_phase(
+            x, topo, refresh, energy, grad, budget, f_tol, max_step, control
+        )
+        steps += used
+        budget -= used
+        control.offset = steps
+        if budget > 0 and _max_force(grad) >= f_tol:
+            x, energy, grad, used = _fire_phase(
+                x, topo, refresh, energy, grad, budget, f_tol, max_step, control
+            )
+            steps += used
 
     max_force = _max_force(grad)
     control.offset = 0

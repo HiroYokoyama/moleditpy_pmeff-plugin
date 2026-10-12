@@ -95,8 +95,8 @@ def open_settings_dialog(
         "hbond",
         "Hydrogen bond correction",
         "Geometry-dependent D−H···A attraction (donors / acceptors: N, O, F, S). "
-        "Energy: ε · [(R₀/r)¹² − 2(R₀/r)⁶] · cos²(∠DHA). "
-        "Improves H-bond distances and linearity. Fast.",
+        "Energy: ε · [(R₀/r)¹² − 2(R₀/r)⁶] · min(cos(∠DHA), 0)². "
+        "Favors 180° and tapers to zero at 90°; no reverse-facing attraction. Fast.",
         default=True,
     )
     _add(

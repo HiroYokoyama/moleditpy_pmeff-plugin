@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Fixed
+
+- Final-charge convergence checks prevent reporting a minimum with stale QEq
+  charges. Residual forces now agree with a freshly rebuilt force-field topology.
+- Hydrogen-bond angular taper favors the linear 180-degree geometry and
+  removes the spurious attraction at acute/reverse-facing angles. Analytical
+  gradients are continuous at the 90-degree taper boundary.
+- Macrocycle and cage regressions cover embedded and perturbed adamantane,
+  cubane, cyclododecane and 18-crown-6: heavy-atom angles, bond lengths and
+  freshly recomputed residual forces.
+
 ### Added
 
 - PMEFF optimization, single-point energy and vibrational checks run on a

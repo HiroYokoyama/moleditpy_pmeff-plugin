@@ -275,11 +275,14 @@ after a large relaxation. Topologies from the RDKit boundary carry
 `Topology.qeq_total_charge`; for these, the optimizer calls
 `refresh_qeq_charges(topo, coords)` on the same drift cadence as the Verlet
 refresh, re-solving the charges and rebuilding the Coulomb pair list.
-Because the charges *minimize* the QEq energy, the fixed-charge gradient
-remains exact at the re-solved charges (envelope theorem) — the refresh
-costs one linear solve and introduces no new gradient terms. Between
-refreshes the charges are held fixed, keeping energy and gradient mutually
-consistent.
+Between refreshes the charges are held fixed, keeping energy and gradient
+mutually consistent for that charge snapshot. The force-field Coulomb term
+excludes/scales bonded pairs while the QEq solve uses the full Ohno matrix;
+therefore the envelope theorem does not establish an exact gradient of the
+fully relaxed-charge force-field energy. This remains an approximate model.
+The optimizer always refreshes charges at the final coordinates before
+reporting convergence and polishes residual forces with the remaining budget.
+This avoids false convergence caused by stale charges inside the Verlet skin.
 
 The pair energy is a shielded Coulomb term
 
@@ -323,6 +326,16 @@ recompiles automatically; `refresh_vdw_pairs` can swap pairs *without*
 changing the count, so it clears the cache explicitly.
 
 ## Optimizer — FIRE 2.0 with an L-BFGS finisher
+
+The optional hydrogen-bond angular factor is `min(cos(theta_DHA), 0)^2`,
+with H as the angle vertex. It has its maximum at 180 degrees and goes
+smoothly to zero at 90 degrees, with zero derivative there. Acute and
+reverse-facing geometries have no hydrogen-bond correction; the ordinary LJ
+term still supplies steric repulsion. The old `cos(theta_DHA)^2` factor also
+favored 0 degrees, producing a spurious reverse-facing attraction. This
+directional correction follows the preference for nearly linear hydrogen
+bonds in the [IUPAC definition](https://publications.iupac.org/pac/pdf/2011/pdf/8308x1637.pdf);
+the 90-degree cutoff is this model's smooth taper, not an IUPAC parameter fit.
 
 `optimize(coords, topo, max_iter, f_tol, max_step)` runs two phases sharing
 one iteration budget and one refresh tracker (`_RefreshTracker`, which

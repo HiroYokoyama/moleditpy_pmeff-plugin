@@ -115,7 +115,10 @@ gradient formulas, non-bonded bookkeeping and the optimizer — see the
 
 - **Electronic effects** *(on)* — QEq partial charges from Slater Zeff and
   Allred–Rochow electronegativities feed a shielded Coulomb term; charges are
-  re-solved as the geometry relaxes (envelope theorem keeps the gradient exact).
+  re-solved as the geometry relaxes. This is an approximate charge-relaxation
+  model; forces use the current fixed charges between refreshes. Before claiming
+  convergence the optimizer refreshes charges at the final coordinates and,
+  if necessary, uses the remaining iteration budget to reduce residual forces.
   Also enables square-planar angle targets for 4-coordinate Ni/Pd/Pt/Rh/Ir/Au
   and octahedral targets for 6-coordinate d-block transition metals; cis/trans
   assignment is read from the starting geometry so tetrahedral Pd²⁺ converges
