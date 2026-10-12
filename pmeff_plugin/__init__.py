@@ -27,15 +27,15 @@ import tempfile
 from pathlib import Path
 
 PLUGIN_NAME = "PMEFF Plugin"
-PLUGIN_VERSION = "1.4.1"
+PLUGIN_VERSION = "1.5.0"
 # Must equal the GitHub username (the moleditpy registry enforces this).
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "PMEFF (Python Molecular Editor Force Field) — a self-contained universal "
     "force field covering the entire periodic table (Z=1..118). Adds a "
     "geometry optimizer, a single-point energy tool with per-term "
-    "decomposition, and a vibrational minimum check. No external QM binary "
-    "required."
+    "decomposition, and a vibrational minimum check. For initial DFT structure "
+    "preparation; geometries, energies and modes are approximate, not quantitatively accurate."
 )
 PLUGIN_CATEGORY = "Optimization"
 PLUGIN_TAGS = ["Optimization"]
@@ -44,6 +44,10 @@ PLUGIN_DEPENDENCIES = ["numpy", "rdkit"]
 
 _OPT_METHOD_NAME = f"PMEFF (v{PLUGIN_VERSION})"
 _MAX_ITER = 1000
+_SCOPE_NOTE = (
+    "PMEFF is only for initial structure preparation before DFT. Its geometries, "
+    "energies and modes are approximate, not quantitatively accurate substitutes for DFT results. "
+)
 
 # Plugin options live in a JSON file next to the plugin package, so they
 # travel with the installed plugin and need no host settings API.
@@ -342,14 +346,15 @@ def _optimize(mol, context) -> bool:
         accepted = _display_result(
             context,
             "PMEFF Optimization Result",
-            state,
+            f"{state}\nSteps: {result.steps}   Maximum force: {result.max_force:.6f}",
             ["Property", "Value"],
             [
                 ["Iterations", str(result.steps)],
                 ["Energy", f"{result.energy:.6f}"],
                 ["Maximum force", f"{result.max_force:.6f}"],
             ],
-            "PMEFF uses internal force-field units. An unconverged geometry may "
+            _SCOPE_NOTE
+            + "PMEFF uses internal force-field units. An unconverged geometry may "
             "remain distorted; increase the iteration budget or improve the starting geometry.",
             review=not result.converged,
         )
@@ -459,8 +464,7 @@ def _show_energy(context) -> None:
                 "total",
             )
         ],
-        "Values are in PMEFF internal units and are intended for geometry cleanup, "
-        "not accurate thermochemistry.",
+        _SCOPE_NOTE + "Energy values are in PMEFF internal units.",
     )
 
 
@@ -555,7 +559,9 @@ def _check_minimum(context) -> None:
         f"Maximum force: {result['max_force']:.6f}",
         ["Mode", "Signed sqrt(λ)", "Eigenvalue λ", "Classification"],
         rows,
-        f"Unit-mass modes in internal units, not cm⁻¹. Classification uses |λ| ≤ {tol:g}. "
+        _SCOPE_NOTE
+        + f"Unit-mass modes in internal units, not cm⁻¹. Classification uses |λ| ≤ {tol:g}. "
+        "These values are not physical wavenumbers and do not form an accurate IR or Raman spectrum. "
         "Near-zero modes include translations, rotations and possibly soft internal modes. "
         "A zero-force saddle can require a perturbed starting geometry before re-optimization.",
     )

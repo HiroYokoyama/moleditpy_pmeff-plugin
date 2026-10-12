@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 1.5.0 — 2026-10-12
+
+### Scope
+
+- PMEFF is only for initial structure preparation before DFT. Optimized
+  geometries, energies and vibrational modes are approximate, not quantitatively
+  accurate substitutes for DFT results. This note appears in every result dialog.
+- The imaginary-mode checker reports unit-mass internal curvature modes,
+  not physical wavenumbers in cm⁻¹ or an accurate IR/Raman spectrum.
+
 ### Fixed
 
 - Final-charge convergence checks prevent reporting a minimum with stale QEq
@@ -24,6 +34,8 @@
 - Persistent, copyable result dialogs for energy decomposition, optimization
   convergence and every vibrational mode. Unconverged optimizations require
   an explicit choice to apply the geometry; keeping the original is the default.
+- Compact result summaries with a **Details…** button that opens the full
+  calculation data and a copy button in a separate window.
 
 - Cooperative cancellation and progress callbacks for geometry optimization
   and the vibrational Hessian calculation. Cancellation never writes partial

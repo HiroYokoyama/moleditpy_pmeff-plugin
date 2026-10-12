@@ -43,6 +43,14 @@ Once installed, PMEFF registers:
 > angles and torsions, and placing metal centers in the right coordination
 > geometry. It is not designed for high-accuracy thermochemistry. For accurate
 > energies, pair it with the ORCA or PySCF plugins.
+>
+> **Accuracy:** PMEFF is only for initial structure preparation before DFT.
+> Its optimized geometries, energies and vibrational modes are approximate,
+> not quantitatively accurate substitutes for DFT results. Convergence and
+> the absence of imaginary PMEFF modes do not establish DFT-level accuracy.
+> The minimum checker diagnoses curvature of the approximate PMEFF surface.
+> Its unit-mass mode values are not physical wavenumbers in cm⁻¹ and must
+> not be used as an accurate IR or Raman spectrum.
 
 ### Calculation and result dialogs
 
@@ -54,7 +62,8 @@ Calculation uses a copy of the molecule; cancellation preserves the original
 geometry. The progress dialog temporarily blocks editing to keep the document
 consistent with the submitted structure.
 
-Results stay in a resizable dialog and can be copied as a table. An optimization
+The result dialog shows a compact outcome and accuracy note. **Details…** opens
+the full data in a resizable window, where it can be copied as a table. An optimization
 that exhausts its budget is labelled **Not converged**: choose whether to apply
 that geometry or keep the original. The minimum checker lists every mode,
 the imaginary and near-zero counts, the classification threshold and the

@@ -233,3 +233,27 @@ def test_optimizer_callback_survives_engine_exception(monkeypatch):
     monkeypatch.setattr(plugin, "_optimize", plugin._optimize)
     monkeypatch.setattr("pmeff_plugin.forcefield.optimize_rdkit_mol", boom)
     assert callback(_embed("CCO")) is False
+
+
+def test_result_dialogs_explain_dft_and_spectral_limitations(monkeypatch):
+    plugin._reset_project_state()
+    ctx = make_context()
+    mol = _embed("CO")
+    ctx.current_molecule = mol
+    notes = []
+
+    def display(_context, title, summary, headers, rows, note="", **_kwargs):
+        notes.append((title, note))
+        return True
+
+    monkeypatch.setattr(plugin, "_display_result", display)
+    assert plugin._optimize(mol, ctx)
+    plugin._show_energy(ctx)
+    plugin._check_minimum(ctx)
+    assert len(notes) == 3
+    assert all(
+        "initial structure preparation before DFT" in note for _title, note in notes
+    )
+    assert all("not quantitatively accurate" in note for _title, note in notes)
+    assert "not physical wavenumbers" in notes[-1][1]
+    assert "IR or Raman spectrum" in notes[-1][1]

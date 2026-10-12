@@ -110,15 +110,26 @@ def test_result_table_can_be_copied(qapp):
     dialog = _open_dialogs[-1]
     try:
         assert dialog.isVisible()
-        table = dialog.findChild(QTableWidget)
+        assert dialog.findChild(QTableWidget) is None
+        details = next(
+            b for b in dialog.findChildren(QPushButton) if b.text() == "Details…"
+        )
+        details.click()
+        data_dialog = _open_dialogs[-1]
+        assert data_dialog is not dialog and data_dialog.isVisible()
+        table = data_dialog.findChild(QTableWidget)
         assert table.item(0, 1).text() == "-2.0"
         button = next(
-            b for b in dialog.findChildren(QPushButton) if b.text() == "Copy results"
+            b
+            for b in data_dialog.findChildren(QPushButton)
+            if b.text() == "Copy results"
         )
         button.click()
         assert "1\t-2.0" in QApplication.clipboard().text()
         assert "Internal units" in QApplication.clipboard().text()
     finally:
+        if len(_open_dialogs) > 1:
+            _open_dialogs[-1].close()
         dialog.close()
 
 

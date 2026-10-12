@@ -403,6 +403,11 @@ Callbacks run on the caller's thread; GUI callers must deliver them via Qt signa
 
 ## Vibrational analysis
 
+This is a curvature diagnostic for initial DFT structure preparation.
+The unit-mass mode values are not physical wavenumbers in cm⁻¹, and the
+output is not an accurate IR or Raman spectrum. No spectroscopic accuracy
+is implied by convergence or the absence of imaginary PMEFF modes.
+
 `hessian(coords, topo)` assembles the (3N, 3N) Hessian by central finite
 differences of the *analytical* gradient (2 gradient evaluations per
 coordinate, 6N total), symmetrized; with unit masses it is also the
