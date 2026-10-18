@@ -27,7 +27,7 @@ import tempfile
 from pathlib import Path
 
 PLUGIN_NAME = "PMEFF Plugin"
-PLUGIN_VERSION = "2.0.0a1"
+PLUGIN_VERSION = "2.0.0"
 # Must equal the GitHub username (the moleditpy registry enforces this).
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
