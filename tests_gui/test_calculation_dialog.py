@@ -19,15 +19,15 @@ from pmeff_plugin.result_dialog import _open_dialogs, show_result
 
 
 def test_job_runs_off_gui_thread_and_gui_keeps_ticking(qapp):
-    gui_id = int(QThread.currentThreadId())
-    ids, ticks = [], []
+    gui_thread = QThread.currentThread()
+    threads, ticks = [], []
     timer = QTimer()
     timer.setInterval(5)
     timer.timeout.connect(lambda: ticks.append(1))
     timer.start()
 
     def job(report, _cancel):
-        ids.append(int(QThread.currentThreadId()))
+        threads.append(QThread.currentThread())
         for i in range(5):
             Event().wait(0.02)
             report(i + 1, 5)
@@ -37,7 +37,7 @@ def test_job_runs_off_gui_thread_and_gui_keeps_ticking(qapp):
         assert run_job("PMEFF Test", job) == 42
     finally:
         timer.stop()
-    assert ids and ids[0] != gui_id
+    assert threads and threads[0] is not gui_thread
     assert len(ticks) >= 3
 
 
@@ -152,6 +152,7 @@ def test_unconverged_geometry_is_applied_silently(qapp, monkeypatch):
     monkeypatch.setattr(plugin, "_iteration_budget", lambda: 1)
 
     assert plugin._optimize(mol, ctx) is True
+    assert not np.array_equal(mol.GetConformer().GetPositions(), before)
     # No review dialog was opened — _open_dialogs should not have grown.
     # (The progress dialog has already closed by this point.)
     stopped_msg = next(

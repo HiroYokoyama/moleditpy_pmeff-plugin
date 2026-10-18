@@ -559,8 +559,12 @@ def find_all_widgets(container, cls):
 def install_qt_stubs():
     """Install the stub PySide6 package tree into sys.modules (idempotent)."""
     existing = sys.modules.get("PySide6")
-    if existing is not None and _PYQT6_MODULE_SENTINEL.get("mod") is existing:
+    if existing is not None and _QT_MODULE_STATE.get("mod") is existing:
         return
+
+    _QT_MODULE_STATE["originals"] = {
+        name: sys.modules[name] for name in _MODULE_NAMES if name in sys.modules
+    }
 
     qt_core = types.ModuleType("PySide6.QtCore")
     qt_core.Qt = Qt
@@ -592,21 +596,23 @@ def install_qt_stubs():
     pyside6.QtWidgets = qt_widgets
     pyside6.QtGui = qt_gui
 
-    _PYQT6_MODULE_SENTINEL["mod"] = pyside6
+    _QT_MODULE_STATE["mod"] = pyside6
     sys.modules["PySide6"] = pyside6
     sys.modules["PySide6.QtCore"] = qt_core
     sys.modules["PySide6.QtWidgets"] = qt_widgets
     sys.modules["PySide6.QtGui"] = qt_gui
 
 
-_PYQT6_MODULE_SENTINEL: dict = {}
+_QT_MODULE_STATE: dict = {}
 
 
 def remove_qt_stubs():
-    """Remove the stub PySide6 modules installed by :func:`install_qt_stubs`."""
-    for name in _MODULE_NAMES:
-        sys.modules.pop(name, None)
-    _PYQT6_MODULE_SENTINEL.pop("mod", None)
+    """Restore the exact native modules that existed before the stub swap."""
+    if "mod" in _QT_MODULE_STATE:
+        for name in _MODULE_NAMES:
+            sys.modules.pop(name, None)
+        sys.modules.update(_QT_MODULE_STATE.pop("originals"))
+        _QT_MODULE_STATE.pop("mod")
     clear_exec_hooks()
     _SENDER_STACK.clear()
 
@@ -648,6 +654,11 @@ class _FakePolyData:
 
 
 def install_viz_stubs():
+    if _VIZ_MODULE_STATE:
+        return
+    _VIZ_MODULE_STATE["originals"] = {
+        name: sys.modules[name] for name in ("vtk", "pyvista") if name in sys.modules
+    }
     vtk_mod = types.ModuleType("vtk")
     vtk_mod.vtkCellPicker = _FakeCellPicker
     sys.modules["vtk"] = vtk_mod
@@ -659,9 +670,14 @@ def install_viz_stubs():
 
 
 def remove_viz_stubs():
-    sys.modules.pop("vtk", None)
-    sys.modules.pop("pyvista", None)
+    if _VIZ_MODULE_STATE:
+        sys.modules.pop("vtk", None)
+        sys.modules.pop("pyvista", None)
+        sys.modules.update(_VIZ_MODULE_STATE.pop("originals"))
     _PICK_POSITION[:] = [0.0, 0.0, 0.0]
+
+
+_VIZ_MODULE_STATE: dict = {}
 
 
 def block_module(name):
