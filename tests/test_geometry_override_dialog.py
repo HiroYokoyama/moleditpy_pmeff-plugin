@@ -1,4 +1,4 @@
-"""Tests for pmeff_plugin.geometry_override_dialog under a stubbed PyQt6.
+"""Tests for pmeff_plugin.geometry_override_dialog under a stubbed PySide6.
 
 Drives the real ``_OverrideWindow`` class (constructed directly, not through
 Qt's event loop) with the hand-built stand-ins in ``tests/qt_stubs.py``, so
@@ -174,9 +174,9 @@ def test_open_override_window_headless_returns_none():
     saved = {
         k: sys.modules.pop(k)
         for k in list(sys.modules)
-        if k == "PyQt6" or k.startswith("PyQt6.")
+        if k == "PySide6" or k.startswith("PySide6.")
     }
-    sys.modules["PyQt6"] = None  # type: ignore[assignment]
+    sys.modules["PySide6"] = None  # type: ignore[assignment]
     sys.modules.pop(MODULE_NAME, None)
     try:
         mod = importlib.import_module(MODULE_NAME)
@@ -184,7 +184,7 @@ def test_open_override_window_headless_returns_none():
     finally:
         sys.modules.pop(MODULE_NAME, None)
         for k in list(sys.modules):
-            if k == "PyQt6" or k.startswith("PyQt6."):
+            if k == "PySide6" or k.startswith("PySide6."):
                 del sys.modules[k]
         sys.modules.update(saved)
 

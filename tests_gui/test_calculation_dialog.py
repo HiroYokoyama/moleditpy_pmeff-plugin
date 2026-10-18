@@ -6,9 +6,9 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt6")
-from PyQt6.QtCore import QThread, QTimer
-from PyQt6.QtWidgets import QApplication, QPushButton, QTableWidget
+pytest.importorskip("PySide6")
+from PySide6.QtCore import QThread, QTimer
+from PySide6.QtWidgets import QApplication, QPushButton, QTableWidget
 from rdkit import Chem
 from rdkit.Chem import AllChem
 

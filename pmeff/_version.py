@@ -1,3 +1,3 @@
 """Version of the pmeff distribution (kept in sync with the plugin)."""
 
-__version__ = "1.5.2"
+__version__ = "2.0.0a1"

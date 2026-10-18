@@ -1,4 +1,4 @@
-"""Tests for pmeff_plugin.settings_dialog under a stubbed PyQt6.
+"""Tests for pmeff_plugin.settings_dialog under a stubbed PySide6.
 
 Exercises the real dialog-construction/accept/reject code paths with the
 hand-built Qt stand-ins in ``tests/qt_stubs.py`` (not just import coverage):
@@ -31,17 +31,17 @@ def settings_dialog_mod():
         qt_stubs.remove_qt_stubs()
 
 
-def test_headless_returns_none_without_pyqt6():
-    # pytest-qt may already have imported a *real* PyQt6 by the time this
+def test_headless_returns_none_without_pyside6():
+    # pytest-qt may already have imported a *real* PySide6 by the time this
     # runs, so force the guarded import in the module to fail rather than
-    # relying on PyQt6 simply being absent (sys.modules[name] = None is the
+    # relying on PySide6 simply being absent (sys.modules[name] = None is the
     # documented way to make `import name` raise ImportError).
     saved = {
         k: sys.modules.pop(k)
         for k in list(sys.modules)
-        if k == "PyQt6" or k.startswith("PyQt6.")
+        if k == "PySide6" or k.startswith("PySide6.")
     }
-    sys.modules["PyQt6"] = None  # type: ignore[assignment]
+    sys.modules["PySide6"] = None  # type: ignore[assignment]
     sys.modules.pop(MODULE_NAME, None)
     try:
         mod = importlib.import_module(MODULE_NAME)
@@ -50,7 +50,7 @@ def test_headless_returns_none_without_pyqt6():
     finally:
         sys.modules.pop(MODULE_NAME, None)
         for k in list(sys.modules):
-            if k == "PyQt6" or k.startswith("PyQt6."):
+            if k == "PySide6" or k.startswith("PySide6."):
                 del sys.modules[k]
         sys.modules.update(saved)
 
