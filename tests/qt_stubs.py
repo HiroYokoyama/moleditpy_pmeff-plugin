@@ -1,4 +1,4 @@
-"""Rich hand-built PyQt6 stand-ins for driving the PMEFF dialog modules.
+"""Rich hand-built PySide6 stand-ins for driving the PMEFF dialog modules.
 
 These are lightweight stub classes (not MagicMock-based) so that real branch
 logic in ``settings_dialog.py`` / ``geometry_override_dialog.py`` executes:
@@ -9,7 +9,7 @@ widgets that the dialog code paths run unmodified.
 
 Install with :func:`install_qt_stubs` (idempotent) and tear down with
 :func:`remove_qt_stubs` so these never leak into the forcefield/rdkit tests
-that need the *real* PyQt6-absent (headless) behavior.
+that need the *real* PySide6-absent (headless) behavior.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from __future__ import annotations
 import sys
 import types
 
-_MODULE_NAMES = ("PyQt6", "PyQt6.QtWidgets", "PyQt6.QtCore", "PyQt6.QtGui")
+_MODULE_NAMES = ("PySide6", "PySide6.QtWidgets", "PySide6.QtCore", "PySide6.QtGui")
 
 # Stack of "current signal emitter", used to implement QObject.sender().
 _SENDER_STACK: list = []
@@ -557,21 +557,25 @@ def find_all_widgets(container, cls):
 
 
 def install_qt_stubs():
-    """Install the stub PyQt6 package tree into sys.modules (idempotent)."""
-    existing = sys.modules.get("PyQt6")
-    if existing is not None and _PYQT6_MODULE_SENTINEL.get("mod") is existing:
+    """Install the stub PySide6 package tree into sys.modules (idempotent)."""
+    existing = sys.modules.get("PySide6")
+    if existing is not None and _QT_MODULE_STATE.get("mod") is existing:
         return
 
-    qt_core = types.ModuleType("PyQt6.QtCore")
+    _QT_MODULE_STATE["originals"] = {
+        name: sys.modules[name] for name in _MODULE_NAMES if name in sys.modules
+    }
+
+    qt_core = types.ModuleType("PySide6.QtCore")
     qt_core.Qt = Qt
     qt_core.QObject = QObject
     qt_core.QEvent = QEvent
     qt_core.QTimer = QTimer
 
-    qt_gui = types.ModuleType("PyQt6.QtGui")
+    qt_gui = types.ModuleType("PySide6.QtGui")
     qt_gui.QColor = QColor
 
-    qt_widgets = types.ModuleType("PyQt6.QtWidgets")
+    qt_widgets = types.ModuleType("PySide6.QtWidgets")
     qt_widgets.QWidget = QWidget
     qt_widgets.QDialog = QDialog
     qt_widgets.QDialogButtonBox = QDialogButtonBox
@@ -587,26 +591,28 @@ def install_qt_stubs():
     qt_widgets.QHeaderView = QHeaderView
     qt_widgets.QApplication = QApplication
 
-    pyqt6 = types.ModuleType("PyQt6")
-    pyqt6.QtCore = qt_core
-    pyqt6.QtWidgets = qt_widgets
-    pyqt6.QtGui = qt_gui
+    pyside6 = types.ModuleType("PySide6")
+    pyside6.QtCore = qt_core
+    pyside6.QtWidgets = qt_widgets
+    pyside6.QtGui = qt_gui
 
-    _PYQT6_MODULE_SENTINEL["mod"] = pyqt6
-    sys.modules["PyQt6"] = pyqt6
-    sys.modules["PyQt6.QtCore"] = qt_core
-    sys.modules["PyQt6.QtWidgets"] = qt_widgets
-    sys.modules["PyQt6.QtGui"] = qt_gui
+    _QT_MODULE_STATE["mod"] = pyside6
+    sys.modules["PySide6"] = pyside6
+    sys.modules["PySide6.QtCore"] = qt_core
+    sys.modules["PySide6.QtWidgets"] = qt_widgets
+    sys.modules["PySide6.QtGui"] = qt_gui
 
 
-_PYQT6_MODULE_SENTINEL: dict = {}
+_QT_MODULE_STATE: dict = {}
 
 
 def remove_qt_stubs():
-    """Remove the stub PyQt6 modules installed by :func:`install_qt_stubs`."""
-    for name in _MODULE_NAMES:
-        sys.modules.pop(name, None)
-    _PYQT6_MODULE_SENTINEL.pop("mod", None)
+    """Restore the exact native modules that existed before the stub swap."""
+    if "mod" in _QT_MODULE_STATE:
+        for name in _MODULE_NAMES:
+            sys.modules.pop(name, None)
+        sys.modules.update(_QT_MODULE_STATE.pop("originals"))
+        _QT_MODULE_STATE.pop("mod")
     clear_exec_hooks()
     _SENDER_STACK.clear()
 
@@ -648,6 +654,11 @@ class _FakePolyData:
 
 
 def install_viz_stubs():
+    if _VIZ_MODULE_STATE:
+        return
+    _VIZ_MODULE_STATE["originals"] = {
+        name: sys.modules[name] for name in ("vtk", "pyvista") if name in sys.modules
+    }
     vtk_mod = types.ModuleType("vtk")
     vtk_mod.vtkCellPicker = _FakeCellPicker
     sys.modules["vtk"] = vtk_mod
@@ -659,9 +670,14 @@ def install_viz_stubs():
 
 
 def remove_viz_stubs():
-    sys.modules.pop("vtk", None)
-    sys.modules.pop("pyvista", None)
+    if _VIZ_MODULE_STATE:
+        sys.modules.pop("vtk", None)
+        sys.modules.pop("pyvista", None)
+        sys.modules.update(_VIZ_MODULE_STATE.pop("originals"))
     _PICK_POSITION[:] = [0.0, 0.0, 0.0]
+
+
+_VIZ_MODULE_STATE: dict = {}
 
 
 def block_module(name):

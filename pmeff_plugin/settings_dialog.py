@@ -1,7 +1,7 @@
-"""PMEFF settings dialog (PyQt6).
+"""PMEFF settings dialog (PySide6).
 
 Opens a modal dialog with checkboxes for each PMEFF physics option.
-The PyQt6 import is guarded so this module can be imported in headless
+The PySide6 import is guarded so this module can be imported in headless
 (test) environments without raising ImportError — callers check the
 return value of :func:`open_settings_dialog` for None.
 """
@@ -20,7 +20,7 @@ def open_settings_dialog(
     """Show the PMEFF settings dialog on top of *parent*.
 
     Returns the updated settings dict when the user clicks OK, or None if
-    they cancel or if PyQt6 is not available (headless environment).
+    they cancel or if PySide6 is not available (headless environment).
 
     *defaults* supplies the values the "Restore Defaults" button resets each
     option to; when omitted, the dialog's own per-option defaults are used.
@@ -29,7 +29,7 @@ def open_settings_dialog(
     button that opens the per-atom coordination-geometry table.
     """
     try:
-        from PyQt6.QtWidgets import (  # type: ignore[import]
+        from PySide6.QtWidgets import (  # type: ignore[import]
             QDialog,
             QDialogButtonBox,
             QLabel,
@@ -38,7 +38,7 @@ def open_settings_dialog(
             QPushButton,
             QSpinBox,
         )
-        from PyQt6.QtCore import Qt  # type: ignore[import]
+        from PySide6.QtCore import Qt  # type: ignore[import]
     except ImportError:
         return None
 

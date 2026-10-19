@@ -1,4 +1,4 @@
-"""PMEFF Metal Geometry Override — modeless per-atom geometry table (PyQt6).
+"""PMEFF Metal Geometry Override — modeless per-atom geometry table (PySide6).
 
 Opens a non-modal window with a table of the current molecule's atoms and a
 per-atom coordination-geometry drop-down (Auto / Linear / Trigonal Planar /
@@ -18,7 +18,7 @@ coordination number does not match the atom's neighbor count are disabled (e.g.
 the plugin on Apply, on Apply & Optimize, and when the window is closed, so they
 survive closing/reopening the window and are saved with the project.
 
-All PyQt6 / PyVista / VTK imports are guarded so this module imports cleanly in
+All PySide6 / PyVista / VTK imports are guarded so this module imports cleanly in
 headless (test) environments; :func:`open_override_window` returns ``None`` and
 the pure helpers below (:data:`GEOMETRY_CHOICES`, :func:`is_metal`) stay usable.
 """
@@ -117,12 +117,12 @@ def open_override_window(
 ) -> Optional[object]:
     """Open (or re-show) the modeless geometry-override window.
 
-    Returns the window, or ``None`` in a headless environment (no PyQt6). The
+    Returns the window, or ``None`` in a headless environment (no PySide6). The
     window is registered with the host under the key ``"pmeff_geometry_override"``
     so repeated calls re-show the same instance rather than stacking windows.
     """
     try:
-        from PyQt6.QtWidgets import QApplication  # type: ignore[import]  # noqa: F401
+        from PySide6.QtWidgets import QApplication  # type: ignore[import]  # noqa: F401
     except ImportError:
         return None
 
@@ -144,7 +144,7 @@ def open_override_window(
 
 
 try:  # pragma: no cover - exercised only with a real GUI stack
-    from PyQt6.QtWidgets import (
+    from PySide6.QtWidgets import (
         QWidget,
         QVBoxLayout,
         QHBoxLayout,
@@ -156,8 +156,8 @@ try:  # pragma: no cover - exercised only with a real GUI stack
         QLabel,
         QHeaderView,
     )
-    from PyQt6.QtGui import QColor
-    from PyQt6.QtCore import Qt, QObject, QEvent, QTimer
+    from PySide6.QtGui import QColor
+    from PySide6.QtCore import Qt, QObject, QEvent, QTimer
 
     _HAVE_QT = True
 except ImportError:  # headless / test environment

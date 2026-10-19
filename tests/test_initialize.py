@@ -21,7 +21,7 @@ def _embed(smiles: str) -> Chem.Mol:
 def test_metadata_present():
     assert plugin.PLUGIN_NAME == "PMEFF Plugin"
     # Shape only, not a pinned literal: version bumps must not break tests.
-    assert re.fullmatch(r"\d+\.\d+\.\d+", plugin.PLUGIN_VERSION)
+    assert re.fullmatch(r"\d+\.\d+\.\d+(?:a\d+)?", plugin.PLUGIN_VERSION)
     assert "numpy" in plugin.PLUGIN_DEPENDENCIES
     assert "rdkit" in plugin.PLUGIN_DEPENDENCIES
 

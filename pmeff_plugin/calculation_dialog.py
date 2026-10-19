@@ -9,8 +9,8 @@ from typing import Any, Callable
 
 # PyQt's runtime C-extension symbols are not visible to pylint's static importer.
 # pylint: disable=no-name-in-module
-from PyQt6.QtCore import QThread, QTimer, Qt, pyqtSignal, pyqtSlot
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QThread, QTimer, Qt, Signal, Slot
+from PySide6.QtWidgets import (
     QApplication,
     QDialog,
     QLabel,
@@ -29,7 +29,7 @@ Job = Callable[[Callable[..., None], Callable[[], bool]], Any]
 class CalculationThread(QThread):
     """Run pure molecular work; GUI updates travel through queued signals."""
 
-    progress = pyqtSignal(object)
+    progress = Signal(object)
 
     def __init__(self, job: Job, parent: QWidget) -> None:
         super().__init__(parent)
@@ -86,7 +86,7 @@ class CalculationDialog(QDialog):
         self.worker.progress.connect(self.update_progress)
         self.worker.finished.connect(self.accept)
 
-    @pyqtSlot(object)
+    @Slot(object)
     def update_progress(self, update: Any) -> None:
         """Apply progress only on the GUI thread."""
         if self.worker.cancel_event.is_set():

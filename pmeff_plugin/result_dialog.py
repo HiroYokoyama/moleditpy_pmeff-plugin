@@ -6,8 +6,8 @@ from typing import Any, Sequence
 
 # PyQt's runtime C-extension symbols are not visible to pylint's static importer.
 # pylint: disable=no-name-in-module
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
     QApplication,
     QAbstractItemView,
     QDialog,

@@ -3,7 +3,7 @@
 The PMEFF engine (``pmeff_plugin.forcefield``) uses real ``numpy`` and,
 at its boundary, real ``rdkit`` — both are required to exercise the actual
 math and are available in the test environment. Only the heavy *host* imports
-(PyQt6, moleditpy) are mocked, and only for the plugin-entry (``__init__``)
+(PySide6, moleditpy) are mocked, and only for the plugin-entry (``__init__``)
 tests via :func:`load_plugin_entry`.
 """
 
@@ -23,7 +23,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 # Only the host GUI stack is mocked; numpy/rdkit stay real.
-BLOCKED_TOPS: frozenset[str] = frozenset({"PyQt6", "moleditpy"})
+BLOCKED_TOPS: frozenset[str] = frozenset({"PySide6", "moleditpy"})
 
 
 class _MagicLoader(importlib.abc.Loader):
