@@ -21,7 +21,7 @@ keywords = [
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)",
     "Programming Language :: Python :: 3",
     "Topic :: Scientific/Engineering :: Chemistry",
     "Operating System :: OS Independent",
@@ -39,6 +39,7 @@ Homepage = "https://github.com/HiroYokoyama/moleditpy_pmeff-plugin"
 Repository = "https://github.com/HiroYokoyama/moleditpy_pmeff-plugin"
 
 [tool.setuptools]
+license-files = ["LICENSE", "COPYING", "LICENSING.md"]
 # The engine (pmeff/forcefield.py) and version (pmeff/_version.py) are copied
 # from the plugin by scripts/sync_forcefield.py before every build.
 packages = ["pmeff"]
