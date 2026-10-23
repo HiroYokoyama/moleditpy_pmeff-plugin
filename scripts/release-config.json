@@ -1,0 +1,20 @@
+{
+  "source": "pmeff_plugin/__init__.py",
+  "title": "PMEFF Plugin",
+  "package": "pmeff_plugin",
+  "archive": "pmeff_plugin_{version}.zip",
+  "assets": [
+    "pmeff_plugin_{version}.zip"
+  ],
+  "include": [
+    "README.md",
+    "LICENSE",
+    "COPYING",
+    "LICENSING.md"
+  ],
+  "exclude": [
+    "*/__pycache__/*",
+    "*/.git/*",
+    "*/settings.json"
+  ]
+}

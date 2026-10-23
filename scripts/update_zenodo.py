@@ -14,9 +14,13 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
+from typing import Any, Iterable, Optional, Union
 
 
-def parse_pyproject_version(filepath="moleditpy/pyproject.toml"):
+def parse_pyproject_version(
+    filepath: str = "moleditpy/pyproject.toml",
+) -> Optional[str]:
     """Extract version from pyproject.toml."""
     if not os.path.exists(filepath):
         return None
@@ -28,14 +32,24 @@ def parse_pyproject_version(filepath="moleditpy/pyproject.toml"):
     return None
 
 
-#: Zenodo record for "MoleditPy PMEFF Plugin":
-#: https://zenodo.org/records/21716781
-#: Zenodo versions the whole record family from any published version,
-#: so this stays correct across releases and is the only ID here.
-DEPOSITION_ID = "21716781"
+def load_config(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    config = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(config, dict):
+        raise ValueError("Zenodo configuration must be a JSON object.")
+    for key in ("deposition_id", "sandbox_deposition_id"):
+        value = config.get(key)
+        if value is not None and (not isinstance(value, str) or not value.isdecimal()):
+            raise ValueError(f"{key} must be a numeric record ID string.")
+    return config
 
 
-def file_md5(path):
+CONFIG = load_config(Path(__file__).with_name("zenodo-config.json"))
+DEPOSITION_ID = CONFIG.get("deposition_id")
+
+
+def file_md5(path: str) -> str:
     digest = hashlib.md5()
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(1 << 20), b""):
@@ -43,7 +57,10 @@ def file_md5(path):
     return digest.hexdigest()
 
 
-def plan_file_uploads(existing_entries, paths):
+def plan_file_uploads(
+    existing_entries: Union[Iterable[dict[str, Any]], dict[str, dict[str, Any]]],
+    paths: list[str],
+) -> tuple[list[str], list[str]]:
     """Which local files still need uploading to a draft, and which draft
     entries are stale and must be deleted first.
 
@@ -71,7 +88,13 @@ def plan_file_uploads(existing_entries, paths):
     return to_upload, stale
 
 
-def make_request(url, data=None, headers=None, method="GET", json_response=True):
+def make_request(
+    url: str,
+    data: Any = None,
+    headers: Optional[dict[str, str]] = None,
+    method: str = "GET",
+    json_response: bool = True,
+) -> Any:
     """Utility function to make HTTP requests using urllib."""
     headers = dict(headers or {})
     is_files = re.search(r"/files(?:/|$)", urllib.parse.urlsplit(url).path)
@@ -111,7 +134,9 @@ def make_request(url, data=None, headers=None, method="GET", json_response=True)
         ) from e
 
 
-def build_draft_update(draft, version, publication_date):
+def build_draft_update(
+    draft: dict[str, Any], version: str, publication_date: str
+) -> dict[str, Any]:
     """Preserve editable draft data without copying parent or system fields."""
     metadata = copy.deepcopy(draft.get("metadata", {}))
     if not metadata.get("title") or not metadata.get("creators"):
@@ -126,7 +151,7 @@ def build_draft_update(draft, version, publication_date):
             {"id": right["id"]} if right.get("id") else right
             for right in metadata["rights"]
         ]
-    payload = {"metadata": metadata, "files": {"enabled": True}}
+    payload: dict[str, Any] = {"metadata": metadata, "files": {"enabled": True}}
     access = draft.get("access", {})
     if access:
         payload["access"] = {
@@ -142,7 +167,7 @@ def build_draft_update(draft, version, publication_date):
     return payload
 
 
-def check_published_files(record, paths):
+def check_published_files(record: dict[str, Any], paths: list[str]) -> None:
     """Refuse a duplicate publication even when existing assets differ."""
     entries = record.get("files", {}).get("entries", {})
     for path in paths:
@@ -155,7 +180,9 @@ def check_published_files(record, paths):
             )
 
 
-def find_published_version(latest, version, base_url, headers):
+def find_published_version(
+    latest: dict[str, Any], version: str, base_url: str, headers: dict[str, str]
+) -> Optional[dict[str, Any]]:
     """Find a published version before any mutation, including older backfills."""
     if latest.get("metadata", {}).get("version") == version:
         return latest
@@ -177,14 +204,15 @@ def find_published_version(latest, version, base_url, headers):
             if record.get("is_published") is False:
                 continue
             if record.get("metadata", {}).get("version") == version:
-                return make_request(
+                published_record: dict[str, Any] = make_request(
                     f"{base_url}/records/{record['id']}", headers=headers
                 )
+                return published_record
         url = page.get("links", {}).get("next")
     return None
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Update Zenodo Deposition (InvenioRDM API)"
     )
@@ -248,6 +276,12 @@ def main():
         version = version[1:]
 
     deposition_id = args.deposition_id
+    if args.sandbox and deposition_id == DEPOSITION_ID:
+        deposition_id = CONFIG.get("sandbox_deposition_id")
+        if not deposition_id:
+            raise ValueError(
+                "Pass an explicit Sandbox --deposition-id or configure sandbox_deposition_id."
+            )
     if not deposition_id:
         raise ValueError("No deposition ID: pass --deposition-id.")
 
