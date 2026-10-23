@@ -42,55 +42,29 @@ jobs:
           fi
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
+      - name: Verify version matches plugin source
+        run: python scripts/release_common.py verify --version "$VERSION"
+
       - name: Create and push tag
         if: github.event_name == 'workflow_dispatch'
         run: |
           git tag "v$VERSION"
           git push origin "v$VERSION"
 
-      - name: Verify version matches plugin source
-        run: |
-          FILE_VERSION=$(python3 -c "
-          import re
-          text = open('pmeff_plugin/__init__.py', encoding='utf-8').read()
-          m = re.search(r\"PLUGIN_VERSION\s*=\s*['\\\"](.+?)['\\\"]\", text)
-          print(m.group(1).strip() if m else '')
-          ")
-          echo "Tag/input version : $VERSION"
-          echo "PLUGIN_VERSION    : $FILE_VERSION"
-          if [ "$VERSION" != "$FILE_VERSION" ]; then
-            echo "ERROR: version '$VERSION' does not match PLUGIN_VERSION '$FILE_VERSION' in pmeff_plugin/__init__.py"
-            exit 1
-          fi
-
       - name: Build plugin zip
-        run: |
-          cp README.md LICENSE COPYING LICENSING.md pmeff_plugin/
-          zip -r "pmeff_plugin_${VERSION}.zip" pmeff_plugin/ \
-            --exclude "*/__pycache__/*" "*/.git/*" "*/settings.json"
+        run: python scripts/release_common.py package --version "$VERSION"
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "v$VERSION" \
-            --title "PMEFF Plugin $VERSION" \
-            --generate-notes \
-            "pmeff_plugin_${VERSION}.zip"
+        run: python scripts/release_common.py publish --version "$VERSION"
 
       - name: Trigger moleditpy-plugins registry update
         if: success()
         continue-on-error: true
         env:
           REGISTRY_PAT: ${{ secrets.REGISTRY_PAT }}
-        run: |
-          if [ -n "$REGISTRY_PAT" ]; then
-            curl -s -X POST \
-              -H "Authorization: Bearer $REGISTRY_PAT" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/HiroYokoyama/moleditpy-plugins/dispatches" \
-              -d "{\"event_type\":\"plugin_release\",\"client_payload\":{\"repo\":\"${{ github.repository }}\",\"tag\":\"v$VERSION\"}}"
-          fi
+        run: python scripts/release_common.py notify --version "$VERSION"
 
   pypi:
     name: Publish pmeff to PyPI

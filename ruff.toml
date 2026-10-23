@@ -1,0 +1,3 @@
+
+# Common tool copies are validated and formatted only in their canonical repositories.
+extend-exclude = ["scripts/release_common.py", "scripts/update_zenodo.py"]
