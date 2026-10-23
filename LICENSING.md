@@ -1,31 +1,30 @@
-# Licensing and dependency scope
+# Licensing and independently developed plugins
 
-The copyright holder authorizes distribution of the first-party source in this
-MoleditPy 5 migration of **moleditpy_pmeff-plugin** under **LGPL-3.0-or-later**.
-Copyright: Hiromichi Yokoyama / HiroYokoyama and the project's existing notices.
-This is an additional permission for these newly distributed copies; historical
-releases, tags and their original grants are not withdrawn or rewritten.
+The first-party source code in **moleditpy_pmeff-plugin** is licensed under the GNU Lesser
+General Public License, version 3 or (at your option) any later version
+(LGPL-3.0-or-later). `LICENSE` contains LGPLv3's additional permissions;
+`COPYING` contains the incorporated GPLv3 terms. Earlier releases retain their
+original licenses.
 
-`LICENSE` contains the LGPLv3 additional permissions and `COPYING` the incorporated
-GPLv3 terms. Keep both files, this notice and existing copyright notices with
-source and binary distributions. Modifications to covered library code retain
-the LGPL terms. Provide corresponding source and allow modification/replacement
-of covered libraries when distributing a combined binary.
+Copyright: Hiromichi Yokoyama / HiroYokoyama and the contributors identified in
+the existing copyright notices. Retain those notices, `LICENSE`, `COPYING`, and
+this document when redistributing the covered source or binaries.
 
-Third-party code, libraries, executables, models and data keep their own licenses.
-This grant does not relicense another author's work. Python/package dependencies
-are not included in this grant; preserve their notices and comply with their
-distribution terms. Optional programs that exchange ordinary files are distinct
-from libraries loaded into the Python process; do not infer LGPL compatibility
-merely from running a command in another process.
+Modifications to the covered code remain subject to the LGPL. Distribution
+terms must allow users to modify the covered components and reverse engineer
+for debugging their modifications as required by LGPLv3. Provide corresponding
+source and allow modification or replacement of covered libraries when
+distributing a combined binary, as required by the license.
 
-Independent plugins may choose their own license under MoleditPy's documented
-plugin-API permission. This project's LGPL choice does not impose the same choice
-on every independently developed plugin. See the main app's LICENSING.md.
+Independently developed plugins that use MoleditPy's documented plugin API may
+be distributed under any license, including proprietary licenses, under the
+[main application's copyright-holder permission](https://github.com/HiroYokoyama/python_molecular_editor/blob/main/LICENSING.md).
+Their authors choose their licenses and retain their copyright. This repository's
+LGPL license does not change the licenses of other independently developed
+plugins, copied MoleditPy code, or third-party components.
 
-The audit covers declared dependencies, imports, source provenance, bundled
-components and release packaging. Common dependencies include PySide6/Qt
-(LGPLv3 option), RDKit/NumPy/SciPy/VTK (BSD-family), PyVista (MIT), Matplotlib
-(PSF-based), Pillow (MIT-CMU), ASE/Paramiko (LGPL) and cryptography (Apache/BSD).
-Actual dependency versions and any native/transitive libraries retain their
-separate notices; this document does not grant rights to those components.
+Third-party libraries, executables, models, and data retain their own licenses
+and obligations. Preserve their notices and comply with the terms of the
+versions actually redistributed, including native and transitive dependencies.
+Running a program in a separate process does not by itself establish license
+compatibility.
