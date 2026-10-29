@@ -1,0 +1,40 @@
+title: PMEFF
+description: A universal molecular force field for MoleditPy.
+baseurl: /moleditpy_pmeff-plugin
+url: https://hiroyokoyama.github.io
+main_site_url: https://hiroyokoyama.github.io/python_molecular_editor
+repository: HiroYokoyama/moleditpy_pmeff-plugin
+markdown: kramdown
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge
+plugins:
+- jekyll-optional-front-matter
+- jekyll-readme-index
+- jekyll-relative-links
+readme_index:
+  enabled: true
+  remove_originals: false
+  with_frontmatter: true
+defaults:
+- scope:
+    path: ''
+    type: pages
+  values:
+    layout: page
+exclude:
+- scripts
+- __pycache__
+- .pytest_cache
+- .ruff_cache
+- AGENTS.md
+- CLAUDE.md
+- CHANGELOG.md
+- '*.py'
+- '*.toml'
+- '*.ini'
+- '*.cfg'
+- '*.zip'
+- '*.whl'
+- '*.egg-info'
+- '*.json'

@@ -1,0 +1,48 @@
+/* Companion to python_molecular_editor's manual stylesheet. */
+.skip-link {
+  position: fixed;
+  top: -5rem;
+  left: 1rem;
+  z-index: 2000;
+  padding: .65rem 1rem;
+  background: #fff;
+  border: 2px solid var(--accent-color);
+}
+.skip-link:focus { top: .75rem; }
+.plugin-docs :focus-visible { outline: 3px solid #73adff; outline-offset: 3px; }
+.plugin-docs .site-title { min-width: 0; font-size: 1rem; }
+.plugin-docs .site-title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plugin-docs .site-title img { flex-shrink: 0; }
+.plugin-docs .site-nav { flex-shrink: 0; }
+.plugin-docs .site-nav a.github-link { display: inline-flex; }
+.plugin-docs .page-content { overflow-wrap: anywhere; }
+.plugin-docs .page-content img {
+  height: auto;
+  max-width: 100%;
+}
+.plugin-docs .page-content img[src*="shields.io/"],
+.plugin-docs .page-content img[src*="zenodo.org/badge/"],
+.plugin-docs .page-content img[src*="/badge.svg"],
+.plugin-docs .page-content img[src*="codecov.io/"] {
+  display: inline-block;
+  vertical-align: middle;
+  margin: 0 .25rem .5rem 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.plugin-docs .page-content table { display: block; max-width: 100%; overflow-x: auto; }
+.plugin-docs .page-content pre { overflow-wrap: normal; }
+.plugin-docs .page-content h4 { margin-top: 1.75rem; margin-bottom: .75rem; }
+.plugin-docs .page-content hr { border: 0; border-top: 1px solid var(--border-color); margin: 2rem 0; }
+.plugin-docs .page-content details { margin: 1.5rem 0; }
+.plugin-docs .page-content summary { cursor: pointer; font-weight: 600; }
+@media (max-width: 768px) {
+  .plugin-docs .wrapper { padding: 0 1rem; }
+  .plugin-docs .site-header .wrapper { gap: .75rem; }
+  .plugin-docs .site-nav a.github-link { padding: .4rem .6rem; gap: .4rem; }
+  .plugin-docs .page-content { padding: 2rem 1.25rem 3rem; }
+  .plugin-docs .page-content h1 { font-size: 1.8rem; }
+  .plugin-docs .page-content pre { padding: 1rem; }
+}
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }

@@ -1,0 +1,13 @@
+<footer class="site-footer">
+  <div class="wrapper">
+    <div class="footer-links">
+      <a href="{{ site.main_site_url }}/">MoleditPy</a>
+      <a href="{{ site.main_site_url }}/manual/manual">Manual</a>
+      <a href="https://hiroyokoyama.github.io/moleditpy-plugins/explorer/?q={{ site.title | uri_escape }}">Get plugin</a>
+      <a href="https://github.com/{{ site.repository }}/blob/main/README.md">README on GitHub</a>
+      <a href="https://github.com/{{ site.repository }}/releases">Releases</a>
+    </div>
+    <p>See the <a href="https://github.com/{{ site.repository }}/blob/main/LICENSE">license</a> and <a href="https://github.com/{{ site.repository }}/blob/main/LICENSING.md">dependency terms</a>.</p>
+    <p class="copyright">&copy; {{ 'now' | date: '%Y' }} HiroYokoyama &mdash; {{ site.title | escape }}</p>
+  </div>
+</footer>

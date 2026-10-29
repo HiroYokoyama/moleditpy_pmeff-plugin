@@ -1,0 +1,8 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% if page.title %}{{ page.title | escape }} | {% endif %}{{ site.title | escape }} — MoleditPy</title>
+<meta name="description" content="{{ page.description | default: site.description | escape }}">
+<link rel="icon" href="{{ site.main_site_url }}/icon_images/favicon.ico">
+<!-- Reuse the main application's manual stylesheet; this file only adapts plugin navigation and badges. -->
+<link rel="stylesheet" href="{{ site.main_site_url }}/assets/css/style.css">
+<link rel="stylesheet" href="{{ '/assets/css/plugin-docs.css' | relative_url }}">
