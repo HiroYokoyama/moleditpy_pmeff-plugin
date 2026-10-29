@@ -1,3 +1,4 @@
+/* plugin-docs.css 2026-10-29 -- identical copy in every plugin page repo; bump the date when changing it. */
 /* Companion to python_molecular_editor's manual stylesheet. */
 .skip-link {
   position: fixed;
@@ -31,7 +32,7 @@
   border-radius: 0;
   box-shadow: none;
 }
-.plugin-docs .page-content table { display: block; max-width: 100%; overflow-x: auto; }
+.plugin-docs .page-content table { width: 100%; table-layout: auto; }
 .plugin-docs .page-content pre { overflow-wrap: normal; }
 .plugin-docs .page-content h4 { margin-top: 1.75rem; margin-bottom: .75rem; }
 .plugin-docs .page-content hr { border: 0; border-top: 1px solid var(--border-color); margin: 2rem 0; }
@@ -44,5 +45,6 @@
   .plugin-docs .page-content { padding: 2rem 1.25rem 3rem; }
   .plugin-docs .page-content h1 { font-size: 1.8rem; }
   .plugin-docs .page-content pre { padding: 1rem; }
+  .plugin-docs .page-content table { display: block; overflow-x: auto; }
 }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
