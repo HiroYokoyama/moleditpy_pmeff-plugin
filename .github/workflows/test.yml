@@ -29,7 +29,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: pip install pytest pytest-cov pytest-qt PySide6-Essentials numpy rdkit pylint
+        run: pip install pytest pytest-cov pytest-qt PySide6-Essentials numpy rdkit pylint==4.0.9
 
       - name: Install Qt offscreen runtime libraries
         run: |
